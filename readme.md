@@ -38,4 +38,4 @@ Se quiser rodar pra fuçar nos códigos ou jogar localmente:
 
 Criado por Guilherme Fonseca da Silva.
 
-ribbit 🐸
+uebeti 🐸
