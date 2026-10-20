@@ -11,8 +11,10 @@ import {
   BOSS_NAMES,
   LAYOUT_NMS,
   DEFAULT_BINDS,
+  PACT_LIST,
   formatKeyLabel,
 } from './constants.ts';
+import { getFrogMouthOrigin } from './physics.ts';
 import type { GameEngine } from './engine.ts';
 import { W, H, M, clamp, sil, glow } from './engine.ts';
 import type { DungeonCell } from './dungeon.ts';
@@ -34,6 +36,93 @@ export function drawText(
   g.strokeText(s, Math.round(x), Math.round(y));
   g.fillStyle = c;
   g.fillText(s, Math.round(x), Math.round(y));
+}
+
+/**
+ * Subtle Swamp Scenery Idle Animation: Ambient Slime Bubbles rising and popping on the swamp floor
+ */
+export function drawSwampIdleBubbles(eng: GameEngine) {
+  if (!eng.swampBubbles || !eng.swampBubbles.length) return;
+  const g = eng.ctx;
+  g.save();
+  for (const b of eng.swampBubbles) {
+    if (b.pop > 0) {
+      // Gentle pop ripple ring
+      const prog = 1 - b.pop / 0.22;
+      const rad = b.maxR + prog * 3.5;
+      g.globalAlpha = clamp((1 - prog) * 0.42, 0, 0.42);
+      g.strokeStyle = b.col;
+      g.lineWidth = 1;
+      g.beginPath();
+      g.ellipse(b.x, b.y, rad * 1.15, rad * 0.7, 0, 0, 7);
+      g.stroke();
+    } else if (b.r > 0.4) {
+      // Translucent swamp slime bubble with tiny specular dot
+      g.globalAlpha = 0.28;
+      g.fillStyle = '#071a0e';
+      g.beginPath();
+      g.ellipse(b.x, b.y, b.r * 1.1, b.r * 0.85, 0, 0, 7);
+      g.fill();
+
+      g.globalAlpha = 0.42;
+      g.strokeStyle = b.col;
+      g.lineWidth = 1;
+      g.beginPath();
+      g.ellipse(b.x, b.y, b.r * 1.05, b.r * 0.8, 0, 0, 7);
+      g.stroke();
+
+      if (b.r > 1.3) {
+        g.globalAlpha = 0.55;
+        g.fillStyle = '#e8f5e9';
+        g.fillRect(Math.round(b.x - b.r * 0.45), Math.round(b.y - b.r * 0.45), 1.2, 1.2);
+      }
+    }
+  }
+  g.restore();
+}
+
+/**
+ * Acid Rain & Swamp Storm Particle System:
+ * - Streaks of toxic acid drizzle drifting with the swamp wind
+ * - Atmospheric fog overlay reducing visibility based on weather intensity
+ * - Thunderous lightning flashes during swamp storms
+ */
+export function drawWeather(eng: GameEngine) {
+  if (eng.ST === 'camp' || !eng.weather || eng.weather.type === 'none') return;
+  const g = eng.ctx;
+  const w = eng.weather;
+
+  g.save();
+
+  // 1. Swamp storm & acid drizzle fog overlay (reduces visibility slightly)
+  if (w.fogDensity > 0) {
+    const stormTint = w.type === 'swamp_storm' ? 'rgba(6, 22, 14, ' : 'rgba(10, 30, 18, ';
+    g.fillStyle = `${stormTint}${w.fogDensity})`;
+    g.fillRect(0, 0, W, H);
+  }
+
+  // 2. Acid rain streaks
+  const windSkew = w.windX * 0.045;
+  g.lineWidth = 1.1;
+  g.lineCap = 'round';
+  for (let i = 0; i < w.drops.length; i++) {
+    const d = w.drops[i];
+    g.globalAlpha = d.alpha * clamp(w.intensity, 0.4, 1.4);
+    g.strokeStyle = d.col;
+    g.beginPath();
+    g.moveTo(Math.round(d.x), Math.round(d.y));
+    g.lineTo(Math.round(d.x + windSkew * (d.len / 6)), Math.round(d.y + d.len));
+    g.stroke();
+  }
+
+  // 3. Lightning flash during storms
+  if (w.flashAlpha > 0) {
+    g.globalAlpha = w.flashAlpha;
+    g.fillStyle = '#e0f7fa';
+    g.fillRect(0, 0, W, H);
+  }
+
+  g.restore();
 }
 
 export function getMutatedFrogSprite(
@@ -70,7 +159,7 @@ export function getMutatedFrogSprite(
 }
 
 /**
- * Organic Mouth Spit, Tongue Lash & Vocal Sac Attack Animation (Zero Held Guns!)
+ * Organic Mouth Spit & Vocal Sac Attack Animation (Zero Held Guns, Exact Frog Mouth Origin!)
  */
 export function drawMouthAttackAnim(
   eng: GameEngine,
@@ -87,9 +176,10 @@ export function drawMouthAttackAnim(
   const prog = clamp(1 - puff / 0.24, 0, 1);
   const sinP = Math.sin(prog * Math.PI);
 
-  // Mouth origin right at the frog's open mouth
-  const mx = x + Math.cos(ang) * 5;
-  const my = y - 7 - z + Math.sin(ang) * 4;
+  // Exact mouth origin calculated from the frog sprite geometry
+  const mouth = getFrogMouthOrigin(x, y, z, ang, 1, 0, 0);
+  const mx = mouth.x;
+  const my = mouth.y;
 
   g.save();
   g.translate(Math.round(mx), Math.round(my));
@@ -98,47 +188,38 @@ export function drawMouthAttackAnim(
   // 1. Inflated Vocal Throat Sac Pulse
   g.fillStyle = w.col + '55';
   g.beginPath();
-  g.arc(-2, 2, 4.5 * sinP, 0, 7);
+  g.arc(-2, 2, 4.2 * sinP, 0, 7);
   g.fill();
 
-  // 2. Elastic Pink Frog Tongue Flicking Out of the Mouth!
-  const tngLen = (wIdx === 3 ? 19 : 9.5) * sinP;
-  if (tngLen > 1) {
-    // Dark outline of tongue
-    g.fillStyle = '#3b0718';
-    g.fillRect(-1, -2.5, tngLen + 2, 5);
-    // Fleshy pink tongue body
-    g.fillStyle = '#ff4081';
-    g.fillRect(0, -1.8, tngLen, 3.6);
-    // Wet highlight stripe
-    g.fillStyle = '#ff80ab';
-    g.fillRect(1, -0.8, Math.max(1, tngLen - 1.5), 1.4);
-    // Sticky curled tongue tip
-    g.fillStyle = '#ff4081';
-    g.beginPath();
-    g.arc(tngLen, 0, 2.6, 0, 7);
-    g.fill();
-    g.fillStyle = '#ffffff';
-    g.fillRect(tngLen - 0.5, -1.2, 1.2, 1.2);
+  // 2. Short Tongue Flick on Spit (for non-whip frogs; Dart wIdx===3 has an always-out Castlevania whip!)
+  if (wIdx !== 3) {
+    const tngLen = 7.5 * sinP;
+    if (tngLen > 1) {
+      g.fillStyle = '#3b0718';
+      g.fillRect(-1, -2.2, tngLen + 2, 4.4);
+      g.fillStyle = '#ff4081';
+      g.fillRect(0, -1.5, tngLen, 3.0);
+      g.fillStyle = '#ff80ab';
+      g.fillRect(1, -0.7, Math.max(1, tngLen - 1.5), 1.2);
+    }
   }
 
   // 3. Expanding Organic Spit / Vocal Shockwave Ring & Saliva Droplets
-  const waveDist = 4 + prog * 13;
-  const waveR = 3 + sinP * (wIdx === 4 ? 7 : 5);
+  const waveDist = 3 + prog * 11;
+  const waveR = 2.8 + sinP * (wIdx === 4 ? 6.5 : 4.5);
   g.strokeStyle = w.col;
-  g.lineWidth = 1.6;
+  g.lineWidth = 1.5;
   g.globalAlpha = clamp(1 - prog * 0.85, 0.15, 0.95);
   g.beginPath();
   g.ellipse(waveDist, 0, waveR * 0.65, waveR, 0, -1.3, 1.3);
   g.stroke();
 
-  // Inner white spit burst flash
   if (puff > 0.11) {
     g.fillStyle = '#ffffff';
-    g.fillRect(3, -1.5, 4, 3);
+    g.fillRect(2, -1.2, 3.5, 2.5);
     g.fillStyle = w.col;
-    g.fillRect(6 + prog * 6, -4 * sinP, 2.5, 2.5);
-    g.fillRect(6 + prog * 6, 4 * sinP - 2, 2.5, 2.5);
+    g.fillRect(5 + prog * 5, -3.5 * sinP, 2.2, 2.2);
+    g.fillRect(5 + prog * 5, 3.5 * sinP - 2, 2.2, 2.2);
   }
 
   g.restore();
@@ -647,6 +728,9 @@ export function renderCampScene(eng: GameEngine) {
   const g = eng.ctx;
   g.drawImage(buildCampBgCanvas(eng), 0, 0);
 
+  // Subtle Swamp Scenery Idle Animation: Slime Bubbles rising & popping on the floor
+  drawSwampIdleBubbles(eng);
+
   // 1. Runic Dungeon Portal at Top (240, 48)
   const px = eng.camp.portal.x;
   const py = eng.camp.portal.y;
@@ -706,16 +790,6 @@ export function renderCampScene(eng: GameEngine) {
     dm.fl > 0 ? 1 : 0,
     1.2
   );
-  drawText(g, 'ESPANTALHO DE TREINO', dm.x, dm.y - 30, '#ffe082', 'center', 5.5);
-  drawText(
-    g,
-    `DPS: ${dm.dps.toFixed(1)}/s`,
-    dm.x,
-    dm.y - 19,
-    dm.dps > 0 ? '#ff5252' : '#b0bec5',
-    'center',
-    6.5
-  );
 
   // 4. Old Grandpa Shaman Frog with Wooden Staff & Bubbling Magic Cauldron (92, 236)
   const shx = eng.camp.shaman.x;
@@ -723,37 +797,51 @@ export function renderCampScene(eng: GameEngine) {
   g.globalCompositeOperation = 'lighter';
   g.globalAlpha = 0.68 + Math.sin(eng.TT * 6) * 0.16;
   g.drawImage(glow('#00e5ff'), shx - 36, shy - 36, 72, 72);
-  // Subtle glow around the crystal orb at the top of the old frog's wooden staff
   g.globalAlpha = 0.55 + Math.sin(eng.TT * 8) * 0.2;
   g.drawImage(glow('#84ffff'), shx - 34, shy - 46, 32, 32);
   g.globalCompositeOperation = 'source-over';
   g.globalAlpha = 1;
 
-  // Animated 2-frame Wise Grandpa Shaman Frog with Gnarled Staff
   const shFrame = ((eng.TT * 3.2) | 0) % 2 === 1 && eng.S.shaman2 ? eng.S.shaman2 : eng.S.shaman;
-  const shSquash = Math.sin(eng.TT * 5.2) * 0.06;
-  eng.dspr(shFrame, shx - 6, shy, shSquash, 1, 0, 1.15);
+  const shThroatPuff = Math.sin(eng.TT * 4.2) * 0.08;
+  eng.dspr(shFrame, shx - 8, shy, shThroatPuff, 1, 0, 1.25);
 
-  // Bubbling Magic Cauldron beside the Shaman
-  const cx = shx + 19;
-  const cy = shy + 2;
-  g.fillStyle = '#0d1f26';
-  g.fillRect(cx - 9, cy - 6, 18, 12);
-  g.strokeStyle = '#00acc1';
-  g.lineWidth = 1.5;
-  g.strokeRect(cx - 9, cy - 6, 18, 12);
-  g.fillStyle = '#00e5ff';
-  g.fillRect(cx - 7, cy - 5, 14, 4);
-  // Bubbling cyan potion froth
-  const bOff = Math.sin(eng.TT * 9) * 2;
-  g.fillStyle = '#84ffff';
-  g.fillRect(cx - 4 + bOff, cy - 8, 3, 3);
-  g.fillRect(cx + 2 - bOff, cy - 9, 2.5, 2.5);
+  // Animated 3-Frame Bubbling Magic Cauldron with glowing embers, boiling potion & rising steam
+  const cx = shx + 22;
+  const cy = shy + 1;
+  const cFrame = eng.S.cauldron ? eng.S.cauldron[((eng.TT * 5.5) | 0) % 3] : null;
 
-  drawText(g, 'VELHO SAPO XAMÃ', shx, shy - 34, '#00e5ff', 'center', 6);
-  drawText(g, `LARVAS: ${eng.achStats.larvae}`, shx, shy - 23, '#ffd54f', 'center', 5.5);
-  if (Math.hypot(eng.me.x - shx, eng.me.y - shy) < 36) {
-    drawText(g, `[${intK}] CALDEIRÃO DE UPGRADES`, shx, shy + 22, '#84ffff', 'center', 6);
+  // Cauldron magic glow & hot coal lighting
+  g.save();
+  g.globalCompositeOperation = 'lighter';
+  g.globalAlpha = 0.45 + Math.sin(eng.TT * 7) * 0.15;
+  g.drawImage(glow('#00e5ff'), cx - 22, cy - 24, 44, 44);
+  g.globalAlpha = 0.35 + Math.sin(eng.TT * 9) * 0.12;
+  g.drawImage(glow('#76ff03'), cx - 18, cy - 18, 36, 36);
+  g.globalAlpha = 0.5 + Math.cos(eng.TT * 11) * 0.15;
+  g.drawImage(glow('#ff6d00'), cx - 14, cy - 8, 28, 28);
+  g.restore();
+
+  if (cFrame) {
+    const cauldronSquash = Math.sin(eng.TT * 8) * 0.03;
+    eng.dspr(cFrame, cx, cy, cauldronSquash, 1, 0, 1.15);
+  }
+
+  // Occasional mystic steam wisps / bubbling embers rising from the cauldron
+  if (Math.random() < 0.22) {
+    eng.P.push({
+      x: cx + (Math.random() - 0.5) * 12,
+      y: cy - 12,
+      vx: (Math.random() - 0.5) * 14,
+      vy: -20 - Math.random() * 24,
+      l: 0.65,
+      m: 0.65,
+      c: Math.random() < 0.55 ? '#00e5ff' : '#69f0ae',
+      s: 1.6 + Math.random() * 1.4,
+      g: -8,
+      shape: 'droplet',
+      glow: 0.4,
+    });
   }
 
   // 5. Forager-Style Interactive Camp Crystal & Flora Nodes
@@ -776,7 +864,7 @@ export function renderCampScene(eng: GameEngine) {
     }
   }
 
-  // 6. Y-Sorted Camp Entities (Logs + Resting Frogs, Campfire, Co-op Partner, Player)
+  // 6. Y-Sorted Camp Entities (Blinking Swamp Flora, Logs + Resting Frogs, Campfire, Real Online Players, Player)
   const L: Array<[number, () => void]> = [];
 
   for (const fl of eng.FLORA) {
@@ -784,8 +872,10 @@ export function renderCampScene(eng: GameEngine) {
       fl.y,
       () => {
         const dist = Math.hypot(eng.me.x - fl.x, eng.me.y - fl.y);
-        const bend = dist < 22 ? ((fl.x - eng.me.x) / 22) * 0.35 : Math.sin(eng.TT * 3 + fl.x) * 0.08;
-        const fSpr = eng.S.flora?.[fl.t];
+        const phase = fl.phase || fl.x * 0.1;
+        const bend = dist < 22 ? ((fl.x - eng.me.x) / 22) * 0.35 : Math.sin(eng.TT * 2.6 + phase) * 0.07;
+        const isPlantBlink = ((eng.TT * 1.3 + phase) % 3.4) > 2.85;
+        const fSpr = isPlantBlink && eng.S.flora2 ? eng.S.flora2[fl.t] : eng.S.flora?.[fl.t];
         if (fSpr) {
           g.save();
           g.translate(fl.x, fl.y);
@@ -848,16 +938,17 @@ export function renderCampScene(eng: GameEngine) {
     },
   ]);
 
-  // Co-op Partner Bot / Player in Camp
-  if (eng.botPartner && eng.botPartner.active) {
-    const bp = eng.botPartner;
+  // Real Online Co-op Players in Camp
+  for (const rp of Object.values(eng.netPlayers)) {
+    if (rp.ST !== 'camp') continue;
     L.push([
-      bp.y,
+      rp.y,
       () => {
-        const bSpr = bp.puff > 0 ? eng.S.pPuff[bp.ch] : bp.wf ? eng.S.pWalk[bp.ch] : eng.S.pIdle[bp.ch];
-        eng.dspr(bSpr, bp.x, bp.y, bp.j, 1, 0, 1, bp.z, '#00e5ff');
-        drawMouthAttackAnim(eng, bp.x, bp.y, bp.z, bp.ang, WP[bp.w] ? bp.w : 0, bp.puff);
-        drawText(g, `PARCEIRO: ${CH[bp.ch].n}`, bp.x, bp.y - 28 - bp.z, '#80cbc4', 'center', 5.5);
+        const rSpr = rp.puff > 0 ? eng.S.pPuff[rp.ch] : rp.wf ? eng.S.pWalk[rp.ch] : eng.S.pIdle[rp.ch];
+        const flipX = Math.cos(rp.ang) < 0 ? -1 : 1;
+        eng.dspr(rSpr, rp.x, rp.y, 0, 1, 0, 1, rp.z, '#00e5ff', flipX);
+        drawMouthAttackAnim(eng, rp.x, rp.y, rp.z, rp.ang, rp.w, rp.puff);
+        drawText(g, `${rp.name.toUpperCase()}`, rp.x, rp.y - 26 - rp.z, '#00e5ff', 'center', 5.5);
       },
     ]);
   }
@@ -888,17 +979,18 @@ export function renderCampScene(eng: GameEngine) {
         eng.me.its.length,
         Object.keys(eng.me.syn).length
       );
-      const breathe = eng.me.wf ? Math.sin(eng.TT * 16) * 0.08 : Math.sin(eng.TT * 6.2) * 0.075;
-      const walkHop = eng.me.wf && eng.me.z <= 0 ? Math.abs(Math.sin(eng.TT * 14)) * 3.5 : 0;
+      const breathe = eng.me.wf ? Math.sin(eng.TT * 16) * 0.08 : Math.sin(eng.TT * 5.2) * 0.09;
+      const walkHop = eng.me.wf && eng.me.z <= 0 ? Math.abs(Math.sin(eng.TT * 14)) * 3.8 : 0;
+      const jumpStretch = eng.me.z > 2 ? 0.12 : 0;
       const flipX = Math.cos(eng.me.ang) < 0 ? -1 : 1;
       eng.dspr(
         mySpr,
         eng.me.x,
         eng.me.y,
-        eng.me.j + breathe,
+        eng.me.j + breathe - jumpStretch,
         1,
         0,
-        1,
+        1 + jumpStretch,
         eng.me.z + walkHop,
         '',
         flipX
@@ -926,31 +1018,70 @@ export function renderCampScene(eng: GameEngine) {
   L.sort((a, b) => a[0] - b[0]);
   for (const item of L) item[1]();
 
-  // Casings, Beams, Bullets, Particles
+  // Always-out Castlevania Whip Tongue, Casings, Beams, Bullets, Particles
+  eng.drawAlwaysOutTongueWhip();
   drawCasingsAndBeams(eng);
-  for (const b of eng.myB) eng.drawBullet(b);
+  for (const b of eng.myB.concat(eng.rB)) eng.drawBullet(b);
   eng.drawParticles();
+  drawWeather(eng);
   g.drawImage(eng.VIG, 0, 0);
-  eng.drawCrosshair();
 
-  // Top & Bottom Pixel Banners
+  // Top-left Crisp Economy HUD Box in Camp (Flies, Keys, Larvae - real-time live synchronization!)
+  const ecoY = 22;
+  g.fillStyle = '#050c08dc';
+  g.fillRect(6, ecoY - 3, 118, 16);
+  g.strokeStyle = '#2e573c';
+  g.lineWidth = 1;
+  g.strokeRect(6.5, ecoY - 2.5, 117, 15);
+
+  g.drawImage(eng.S.flyGold[0], 10, ecoY, 12, 10);
+  drawText(g, `${eng.me.gold}`, 25, ecoY + 8.5, '#ffd54f', 'left', 6.5);
+
+  g.drawImage(eng.S.key, 50, ecoY - 0.5, 11, 11);
+  drawText(g, `${eng.me.keys}`, 64, ecoY + 8.5, '#fff59d', 'left', 6.5);
+
+  g.drawImage(eng.S.larva, 86, ecoY, 12, 10);
+  drawText(g, `${eng.achStats.larvae}`, 101, ecoY + 8.5, '#00e5ff', 'left', 6.5);
+
+  // Re-draw Shaman & Dummy crisp UI labels above background flora so nothing clips them
+  drawText(g, 'ESPANTALHO DE TREINO', dm.x, dm.y - 30, '#ffe082', 'center', 5.5);
   drawText(
     g,
-    `SANTUÁRIO DA FOGUEIRA · [${intK}] TROCAR SAPO / XAMÃ · PISE NO PORTAL P/ INICIAR`,
-    240,
-    14,
-    '#ffd54f',
+    `DPS: ${dm.dps.toFixed(1)}/s`,
+    dm.x,
+    dm.y - 19,
+    dm.dps > 0 ? '#ff5252' : '#b0bec5',
     'center',
-    5.8
+    6.5
+  );
+  drawText(g, 'VELHO SAPO XAMÃ', shx + 6, shy - 34, '#00e5ff', 'center', 6);
+  drawText(g, `LARVAS: ${eng.achStats.larvae}`, shx + 6, shy - 23, '#ffd54f', 'center', 5.5);
+  if (Math.hypot(eng.me.x - shx, eng.me.y - shy) < 36) {
+    drawText(g, `[${intK}] CALDEIRÃO DE UPGRADES`, shx + 6, shy + 22, '#84ffff', 'center', 6);
+  }
+
+  eng.drawCrosshair();
+
+  // Top-Left & Bottom Pixel Banners (positioned cleanly to never collide with top-right action buttons)
+  const peerCnt = Object.keys(eng.netPlayers).length;
+  const roomBadge = eng.netRoom ? ` · SALA: ${eng.netRoom.toUpperCase()} (${peerCnt + 1}P)` : '';
+  drawText(
+    g,
+    `SANTUÁRIO DA FOGUEIRA · [${intK}] INTERAGIR`,
+    12,
+    13,
+    '#ffd54f',
+    'left',
+    5.4
   );
   drawText(
     g,
-    `SAPO: ${CH[eng.me.ch].n.toUpperCase()} · HABILIDADE: ${WP[eng.me.w].nm.toUpperCase()} · LARVAS: ${eng.achStats.larvae} · MOSCAS: ${eng.me.gold}`,
+    `SAPO: ${CH[eng.me.ch].n.toUpperCase()} · ${WP[eng.me.w].nm.toUpperCase()} · LARVAS: ${eng.achStats.larvae}${roomBadge}`,
     240,
     H - 7,
     '#a5d6a7',
     'center',
-    5.5
+    5.4
   );
 }
 
@@ -1006,6 +1137,9 @@ export function renderPlayScene(eng: GameEngine) {
 
   // 1. Cached 2.5D Room Architecture
   g.drawImage(buildRoomBgCanvas(eng, eng.wd.bIdx, cell, eng.rmKey()), 0, 0);
+
+  // Subtle Swamp Scenery Idle Animation: Slime Bubbles rising & popping on the swamp floor
+  drawSwampIdleBubbles(eng);
 
   // 2. Animated Water Ripples & Spikes
   const hz = eng.hazards();
@@ -1083,7 +1217,43 @@ export function renderPlayScene(eng: GameEngine) {
     drawText(g, 'ALÇAPÃO ABERTO · PISE PARA AVANÇAR!', 240, 108, '#69f0ae', 'center', 6);
   }
 
-  // 6. Challenge Totem (Risk / Reward Elite Wave)
+  const intKey = formatKeyLabel(eng.CFG?.binds?.interact || DEFAULT_BINDS.interact);
+
+  // 6. Swamp Shrine (Altar de Pacto do Pântano)
+  if (cell.shrine) {
+    const sh = cell.shrine;
+    const pact = PACT_LIST.find((p) => p.id === sh.pactId) || PACT_LIST[0];
+    if (!sh.used) {
+      g.globalCompositeOperation = 'lighter';
+      g.globalAlpha = 0.45 + Math.sin(eng.TT * 5) * 0.15;
+      g.drawImage(glow(pact.col), sh.x - 28, sh.y - 28, 56, 56);
+      g.globalCompositeOperation = 'source-over';
+      g.globalAlpha = 1;
+    }
+    eng.dspr(
+      eng.S.shrine,
+      sh.x,
+      sh.y,
+      Math.sin(eng.TT * 4) * (sh.used ? 0 : 0.05),
+      sh.used ? 0.55 : 1,
+      0,
+      1.25
+    );
+    drawText(
+      g,
+      sh.used ? 'ALTAR DE PACTO (CONSUMIDO)' : `ALTAR MÍSTICO: ${pact.nm.toUpperCase()}`,
+      sh.x,
+      sh.y - 28,
+      sh.used ? '#78909c' : pact.col,
+      'center',
+      5.8
+    );
+    if (!sh.used && eng.wd.clear && Math.hypot(eng.me.x - sh.x, eng.me.y - sh.y) < 34) {
+      drawText(g, `[${intKey}] ACEITAR PACTO: ${pact.ds.toUpperCase()}`, sh.x, sh.y + 24, '#ffd54f', 'center', 5.2);
+    }
+  }
+
+  // 6b. Challenge Totem (Risk / Reward Elite Wave)
   if (cell.type === 'combat' && cell.totem) {
     const tm = cell.totem;
     eng.dspr(
@@ -1095,11 +1265,10 @@ export function renderPlayScene(eng: GameEngine) {
       tm.state === 1 ? 1 : 0,
       1.25
     );
-    const intK = formatKeyLabel(eng.CFG?.binds?.interact || DEFAULT_BINDS.interact);
     if (tm.state === 0 && eng.wd.clear && Math.hypot(eng.me.x - tm.x, eng.me.y - tm.y) < 32) {
       drawText(
         g,
-        `[${intK}] ATIVAR TOTEM DE RISCO (ONDA ELITE = BAÚ + LARVA)`,
+        `[${intKey}] ATIVAR TOTEM DE RISCO (ONDA ELITE = BAÚ + LARVA)`,
         tm.x,
         tm.y - 24,
         '#ff5252',
@@ -1128,8 +1297,6 @@ export function renderPlayScene(eng: GameEngine) {
     g.drawImage(tFrame, tx - tFrame.width / 2, ty - tFrame.height / 2);
   }
 
-  const intKey = formatKeyLabel(eng.CFG?.binds?.interact || DEFAULT_BINDS.interact);
-
   // 8. Shop Merchant & Stone Pedestals
   if (cell.type === 'shop' && cell.shop) {
     const mSpr = ((eng.TT * 3.6) | 0) % 2 === 1 && eng.S.merchant2 ? eng.S.merchant2 : eng.S.merchant;
@@ -1137,7 +1304,6 @@ export function renderPlayScene(eng: GameEngine) {
     drawText(g, 'SAPO MERCADOR DO BREJO', 240, 70, '#ffd54f', 'center', 6.5);
 
     cell.shop.forEach((s, idx) => {
-      // Stone pedestal base
       g.fillStyle = '#37474f';
       g.fillRect(s.x - 13, s.y + 5, 26, 8);
       g.fillStyle = '#78909c';
@@ -1149,7 +1315,7 @@ export function renderPlayScene(eng: GameEngine) {
       }
 
       const isSoloAnkh = idx === 2 && eng.me.ankh === 0;
-      const price = Math.max(1, Math.round(isSoloAnkh ? 30 : s.cost));
+      const price = Math.max(1, Math.round(isSoloAnkh ? 38 : s.cost));
       const by = Math.sin(eng.TT * 4 + s.x) * 2.5;
       let ic = eng.S.h;
       let col = '#ffd54f';
@@ -1213,26 +1379,26 @@ export function renderPlayScene(eng: GameEngine) {
     }
   }
 
-  // 10. Gold Flies, Larvae & Pickups
+  // 10. Gold Flies, Larvae (Animated ONLY on the floor!) & Pickups
   const flySpr = eng.S.flyGold[((eng.TT * 14) | 0) % 2];
   for (const f of eng.FLIES) {
     eng.dspr(flySpr, f.x, f.y, 0, 1, 0, 0.95, f.z);
   }
-  const larvaSpr = ((eng.TT * 6) | 0) % 2 === 1 && eng.S.larva2 ? eng.S.larva2 : eng.S.larva;
+  const larvaFloorSpr = ((eng.TT * 6) | 0) % 2 === 1 && eng.S.larva2 ? eng.S.larva2 : eng.S.larva;
   for (const lv of eng.LARVAE) {
     g.globalCompositeOperation = 'lighter';
     g.globalAlpha = 0.45;
     g.drawImage(glow('#00e5ff'), lv.x - 16, lv.y - 16 - lv.z, 32, 32);
     g.globalCompositeOperation = 'source-over';
     g.globalAlpha = 1;
-    eng.dspr(larvaSpr, lv.x, lv.y, Math.sin(eng.TT * 10 + lv.id) * 0.08, 1, 0, 1.05, lv.z);
+    eng.dspr(larvaFloorSpr, lv.x, lv.y, Math.sin(eng.TT * 10 + lv.id) * 0.08, 1, 0, 1.05, lv.z);
   }
   for (const dr of eng.DROPS) {
     const by = Math.sin(eng.TT * 6 + dr.id) * 2.5;
     eng.dspr(dr.t === 'key' ? eng.S.key : eng.S.h, dr.x, dr.y + by, dr.j, 1, 0);
   }
 
-  // 11. Y-Sorted 2.5D Arena Entities (Pillars, Flora, Props, Enemies, Partner, Player)
+  // 11. Y-Sorted 2.5D Arena Entities (Pillars, Blinking Flora, Props, Enemies, Real Online Players, Player)
   const L: Array<[number, () => void]> = [];
   const obSpr = eng.S.obs[th.ob];
 
@@ -1241,8 +1407,10 @@ export function renderPlayScene(eng: GameEngine) {
       fl.y,
       () => {
         const dist = Math.hypot(eng.me.x - fl.x, eng.me.y - fl.y);
-        const bend = dist < 22 ? ((fl.x - eng.me.x) / 22) * 0.35 : Math.sin(eng.TT * 3 + fl.x) * 0.08;
-        const fSpr = eng.S.flora?.[fl.t];
+        const phase = fl.phase || fl.x * 0.1;
+        const bend = dist < 22 ? ((fl.x - eng.me.x) / 22) * 0.35 : Math.sin(eng.TT * 2.6 + phase) * 0.07;
+        const isPlantBlink = ((eng.TT * 1.3 + phase) % 3.4) > 2.85;
+        const fSpr = isPlantBlink && eng.S.flora2 ? eng.S.flora2[fl.t] : eng.S.flora?.[fl.t];
         if (fSpr) {
           g.save();
           g.translate(fl.x, fl.y);
@@ -1258,7 +1426,6 @@ export function renderPlayScene(eng: GameEngine) {
     L.push([
       k.y + 28,
       () => {
-        // 2.5D Pillar Drop Shadow & Extruded Front Face
         g.fillStyle = '#0008';
         g.fillRect(k.x + 2, k.y + 24, 28, 8);
         g.fillStyle = '#08100b';
@@ -1348,12 +1515,10 @@ export function renderPlayScene(eng: GameEngine) {
           flipX
         );
 
-        // Telegraph Attack Warning Icon (!)
         if ((e.tel || 0) > 0) {
           drawText(g, '!', e.x, e.y - s.height * sc - 6, '#ff1744', 'center', 8);
         }
 
-        // Mini HP bar on damaged enemies
         if (!bo && e.hp < e.mh) {
           g.fillStyle = '#000c';
           g.fillRect(e.x - 10, e.y - s.height * sc - 5, 20, 3);
@@ -1369,37 +1534,38 @@ export function renderPlayScene(eng: GameEngine) {
     ]);
   }
 
-  // Co-op Partner Bot / Player & Holographic Rescue System (3s Ring)
-  if (eng.botPartner && eng.botPartner.active) {
-    const bp = eng.botPartner;
+  // Real Online Co-op Players & Holographic Rescue System
+  for (const rp of Object.values(eng.netPlayers)) {
+    if (rp.ST !== 'play' || rp.gx !== eng.wd.gx || rp.gy !== eng.wd.gy) continue;
     L.push([
-      bp.y,
+      rp.y,
       () => {
-        const bSpr = bp.puff > 0 ? eng.S.pPuff[bp.ch] : bp.wf ? eng.S.pWalk[bp.ch] : eng.S.pIdle[bp.ch];
-        if (bp.dead) {
-          // Holographic Revive Ring (3.0s)
+        const rSpr = rp.puff > 0 ? eng.S.pPuff[rp.ch] : rp.wf ? eng.S.pWalk[rp.ch] : eng.S.pIdle[rp.ch];
+        const flipX = Math.cos(rp.ang) < 0 ? -1 : 1;
+        if (rp.dead) {
           g.save();
           g.strokeStyle = '#00e5ff88';
           g.lineWidth = 2;
           g.setLineDash([4, 3]);
           g.beginPath();
-          g.arc(bp.x, bp.y, 34, 0, 7);
+          g.arc(rp.x, rp.y, 34, 0, 7);
           g.stroke();
           g.setLineDash([]);
-          if (bp.revP > 0) {
+          if (rp.revP > 0) {
             g.strokeStyle = '#00e676';
             g.lineWidth = 3.5;
             g.beginPath();
-            g.arc(bp.x, bp.y, 34, -1.57, -1.57 + bp.revP * 6.283);
+            g.arc(rp.x, rp.y, 34, -1.57, -1.57 + rp.revP * 6.283);
             g.stroke();
           }
           g.restore();
-          drawText(g, 'FIQUE NO ANEL P/ REANIMAR (3s)', bp.x, bp.y + 24, '#00e676', 'center', 5.5);
-          g.drawImage(eng.S.skull, bp.x - eng.S.skull.width / 2, bp.y - 24);
+          drawText(g, `FIQUE NO ANEL P/ REANIMAR ${rp.name.toUpperCase()}`, rp.x, rp.y + 24, '#00e676', 'center', 5.2);
+          g.drawImage(eng.S.skull, rp.x - eng.S.skull.width / 2, rp.y - 24);
         }
-        eng.dspr(bSpr, bp.x, bp.y, bp.j, bp.dead ? 0.42 : 1, 0, 1, bp.z, '#00e5ff');
-        if (!bp.dead) {
-          drawMouthAttackAnim(eng, bp.x, bp.y, bp.z, bp.ang, bp.w, bp.puff);
+        eng.dspr(rSpr, rp.x, rp.y, 0, rp.dead ? 0.42 : 1, 0, 1, rp.z, '#00e5ff', flipX);
+        if (!rp.dead) {
+          drawMouthAttackAnim(eng, rp.x, rp.y, rp.z, rp.ang, rp.w, rp.puff);
+          drawText(g, rp.name.toUpperCase(), rp.x, rp.y - 26 - rp.z, '#00e5ff', 'center', 5.2);
         }
       },
     ]);
@@ -1422,23 +1588,15 @@ export function renderPlayScene(eng: GameEngine) {
         );
       }
 
-      if (eng.me.dead && eng.botPartner?.active && !eng.botPartner.dead) {
-        // Player downed: Holographic Revive Ring for Partner to rescue!
+      if (eng.me.dead && Object.values(eng.netPlayers).some((rp) => !rp.dead)) {
         g.save();
         g.strokeStyle = '#00e5ff99';
         g.lineWidth = 2;
         g.beginPath();
         g.arc(eng.me.x, eng.me.y, 34, 0, 7);
         g.stroke();
-        if (eng.me.revP > 0) {
-          g.strokeStyle = '#00e676';
-          g.lineWidth = 3.5;
-          g.beginPath();
-          g.arc(eng.me.x, eng.me.y, 34, -1.57, -1.57 + eng.me.revP * 6.283);
-          g.stroke();
-        }
         g.restore();
-        drawText(g, 'PARCEIRO REANIMANDO VOCÊ...', eng.me.x, eng.me.y + 24, '#00e5ff', 'center', 5.5);
+        drawText(g, 'AGUARDANDO ALIADO ONLINE REANIMAR...', eng.me.x, eng.me.y + 24, '#00e5ff', 'center', 5.5);
       }
 
       const isBlink = !eng.me.wf && eng.me.puff <= 0 && ((eng.TT * 1.5) % 3.4) > 3.05;
@@ -1452,16 +1610,17 @@ export function renderPlayScene(eng: GameEngine) {
         Object.keys(eng.me.syn).length
       );
       const flyZ = eng.me.z + (eng.me.fly ? Math.sin(eng.TT * 7) * 3.5 + 4 : 0);
-      const walkHop = eng.me.wf && eng.me.z <= 0 ? Math.abs(Math.sin(eng.TT * 14)) * 3.5 : 0;
-      const breathe = eng.me.wf ? Math.sin(eng.TT * 16) * 0.08 : Math.sin(eng.TT * 6.2) * 0.075;
-      const mySc = eng.me.its.length >= 4 || Object.keys(eng.me.syn).length > 0 ? 1.12 : eng.me.its.length >= 2 ? 1.06 : 1;
+      const walkHop = eng.me.wf && eng.me.z <= 0 ? Math.abs(Math.sin(eng.TT * 14)) * 3.8 : 0;
+      const breathe = eng.me.wf ? Math.sin(eng.TT * 16) * 0.08 : Math.sin(eng.TT * 5.2) * 0.09;
+      const jumpStretch = eng.me.z > 2 ? 0.12 : 0;
+      const mySc = (eng.me.its.length >= 4 || Object.keys(eng.me.syn).length > 0 ? 1.12 : eng.me.its.length >= 2 ? 1.06 : 1) * (1 + jumpStretch);
       const flipX = Math.cos(eng.me.ang) < 0 ? -1 : 1;
 
       eng.dspr(
         mySpr,
         eng.me.x,
         eng.me.y,
-        eng.me.j + breathe,
+        eng.me.j + breathe - jumpStretch,
         eng.me.dead
           ? 0.42
           : (eng.me.inv > 0 || eng.me.z > 6) && Math.floor(eng.TT * 18) % 2
@@ -1500,11 +1659,13 @@ export function renderPlayScene(eng: GameEngine) {
   L.sort((a, b) => a[0] - b[0]);
   for (const item of L) item[1]();
 
-  // 12. Casings, Beams, Projectiles & Particles
+  // 12. Always-Out Castlevania Whip Tongue, Casings, Beams, Projectiles & Particles
+  eng.drawAlwaysOutTongueWhip();
   drawCasingsAndBeams(eng);
   for (const b of eng.wd.eb) eng.drawBullet(b, true);
   for (const b of eng.myB.concat(eng.rB)) eng.drawBullet(b, false);
   eng.drawParticles();
+  drawWeather(eng);
   g.drawImage(eng.VIG, 0, 0);
 
   if (eng.fl > 0) {
@@ -1529,14 +1690,14 @@ function renderPlayHUD(eng: GameEngine, cell: DungeonCell, th: any) {
   for (let i = 0; i < eng.me.mh; i++) {
     g.drawImage(
       i < eng.me.hp ? eng.S.h : eng.S.h0,
-      8 + (i % 8) * 15,
-      7 + Math.floor(i / 8) * 13,
+      8 + (i % 8) * 14,
+      6 + Math.floor(i / 8) * 13,
       13,
       11
     );
   }
   let icX = 8;
-  const rowY = eng.me.mh > 8 ? 34 : 22;
+  const rowY = eng.me.mh > 8 ? 33 : 20;
   if (eng.me.sh > 0) {
     g.drawImage(eng.S.sh, icX, rowY, 12, 12);
     icX += 15;
@@ -1546,17 +1707,23 @@ function renderPlayHUD(eng: GameEngine, cell: DungeonCell, th: any) {
     icX += 15;
   }
 
-  // Economy Bar (Gold Flies, Keys, Larvae)
-  const ecoY = rowY + (eng.me.sh > 0 || eng.me.ankh > 0 ? 15 : 2);
-  g.drawImage(eng.S.flyGold[0], 8, ecoY, 12, 10);
-  drawText(g, `${eng.me.gold}`, 23, ecoY + 9, '#ffd54f', 'left', 6.5);
+  // Economy Bar (Gold Flies, Keys, STATIC Larva Icon in UI inside a clean padded HUD box)
+  const ecoY = rowY + (eng.me.sh > 0 || eng.me.ankh > 0 ? 15 : 4);
+  g.fillStyle = '#050c08dc';
+  g.fillRect(6, ecoY - 3, 118, 16);
+  g.strokeStyle = '#2e573c';
+  g.lineWidth = 1;
+  g.strokeRect(6.5, ecoY - 2.5, 117, 15);
 
-  g.drawImage(eng.S.key, 50, ecoY - 1, 11, 11);
-  drawText(g, `${eng.me.keys}`, 64, ecoY + 9, '#fff59d', 'left', 6.5);
+  g.drawImage(eng.S.flyGold[0], 10, ecoY, 12, 10);
+  drawText(g, `${eng.me.gold}`, 25, ecoY + 8.5, '#ffd54f', 'left', 6.5);
 
-  const hudLarva = Math.floor(eng.TT * 5) % 2 === 1 && eng.S.larva2 ? eng.S.larva2 : eng.S.larva;
-  g.drawImage(hudLarva, 85, ecoY, 12, 10);
-  drawText(g, `${eng.achStats.larvae}`, 100, ecoY + 9, '#00e5ff', 'left', 6.5);
+  g.drawImage(eng.S.key, 50, ecoY - 0.5, 11, 11);
+  drawText(g, `${eng.me.keys}`, 64, ecoY + 8.5, '#fff59d', 'left', 6.5);
+
+  // Static larva icon in the UI as requested ("Tira a animação da larvinha da IU deixa ela paradinha mesmo")
+  g.drawImage(eng.S.larva, 86, ecoY, 12, 10);
+  drawText(g, `${eng.achStats.larvae}`, 101, ecoY + 8.5, '#00e5ff', 'left', 6.5);
 
   // Kill Combo Streak Badge
   if (eng.comboCount >= 2 && eng.comboTimer > 0) {
@@ -1564,14 +1731,31 @@ function renderPlayHUD(eng: GameEngine, cell: DungeonCell, th: any) {
       g,
       `COMBO ${eng.comboCount}x!`,
       8,
-      ecoY + 22,
+      ecoY + 23,
       eng.comboCount >= 5 ? '#ff4081' : '#76ff03',
       'left',
       6.5
     );
   }
 
-  // Top Center Biome & Room Title
+  // Top Header: Biome, Room Count on Floor (12-15 rooms), Room Title & Multi-Wave Counter
+  let totalRooms = 0;
+  let visitedRooms = 0;
+  if (eng.wd?.grid) {
+    for (let ry = 0; ry < 5; ry++) {
+      for (let rx = 0; rx < 5; rx++) {
+        const rc = eng.wd.grid[ry]?.[rx];
+        if (rc?.active) {
+          totalRooms++;
+          if (rc.vis) visitedRooms++;
+        }
+      }
+    }
+  }
+  const wMax = cell.wavesTotal || (cell as any).maxWaves || 1;
+  const wCur = cell.waveCur || (cell as any).wave || 1;
+  const waveTag =
+    cell.type === 'combat' && !eng.wd.clear && wMax > 1 ? ` [ONDA ${wCur}/${wMax}]` : '';
   const rmTitle =
     cell.type === 'boss'
       ? 'COVIL DO CHEFE'
@@ -1579,17 +1763,19 @@ function renderPlayHUD(eng: GameEngine, cell: DungeonCell, th: any) {
       ? 'LOJA DO MERCADOR'
       : cell.type === 'treasure'
       ? 'SALA DE MUTAÇÃO'
+      : (cell as any).type === 'shrine' || cell.shrine
+      ? 'ALTAR DO PÂNTANO'
       : cell.type === 'start'
       ? 'CLAREIRA INICIAL'
-      : LAYOUT_NMS[cell.lay] || 'ARENA DO PÂNTANO';
+      : (LAYOUT_NMS[cell.lay] || 'ARENA DO PÂNTANO') + waveTag;
   drawText(
     g,
-    `${th.nm.toUpperCase()} (${eng.wd.bIdx + 1}/5) · ${rmTitle}`,
-    240,
+    `${th.nm.toUpperCase()} (${visitedRooms}/${totalRooms} SALAS) · ${rmTitle}`,
+    218,
     12,
     '#a5d6a7',
     'center',
-    5.8
+    5.4
   );
 
   // Boss Health Bar
@@ -1631,7 +1817,8 @@ function renderPlayHUD(eng: GameEngine, cell: DungeonCell, th: any) {
   });
 
   // Victory / Game Over Banner
-  if (eng.wd.over || (eng.me.dead && (!eng.botPartner?.active || eng.botPartner.dead))) {
+  const anyAliveAlly = Object.values(eng.netPlayers).some((rp) => !rp.dead);
+  if (eng.wd.over || (eng.me.dead && !anyAliveAlly)) {
     g.fillStyle = '#040906ee';
     g.fillRect(0, 96, W, 114);
     g.strokeStyle = eng.wd.over ? '#69f0ae' : '#ff5252';

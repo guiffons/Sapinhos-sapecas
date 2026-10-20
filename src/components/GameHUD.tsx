@@ -17,7 +17,12 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onOpenOptions,
   onOpenCodex,
 }) => {
-  const [partnerOn, setPartnerOn] = useState<boolean>(engine?.botPartner.active || false);
+  const [netRoom, setNetRoom] = useState<string>(engine?.netRoom || '');
+  const [onlineCount, setOnlineCount] = useState<number>(
+    engine ? Object.keys(engine.netPlayers).length : 0
+  );
+  const [showCoopPopover, setShowCoopPopover] = useState<boolean>(false);
+  const [roomInput, setRoomInput] = useState<string>(engine?.netRoom || 'sapo01');
   const [showTouch, setShowTouch] = useState<boolean>(false);
   const [moveVec, setMoveVec] = useState<{ x: number; y: number; active: boolean }>({
     x: 0,
@@ -61,15 +66,23 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       setIsFullscreen(!!document.fullscreenElement);
     };
 
+    const syncNet = () => {
+      if (!engine) return;
+      setNetRoom(engine.netRoom || '');
+      setOnlineCount(Object.keys(engine.netPlayers).length);
+    };
+
     checkTouchMode();
     handleFsChange();
+    syncNet();
     window.addEventListener('resize', checkTouchMode);
     document.addEventListener('fullscreenchange', handleFsChange);
+    window.addEventListener('sapo-net-update', syncNet);
 
     const interval = setInterval(() => {
       if (!engine) return;
       checkTouchMode();
-      setPartnerOn(engine.botPartner.active);
+      syncNet();
       setInteractLabel(engine.getNearbyInteractable());
       setJumpReady((engine.me?.jumpCd || 0) <= 0.02);
     }, 100);
@@ -77,14 +90,16 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     return () => {
       window.removeEventListener('resize', checkTouchMode);
       document.removeEventListener('fullscreenchange', handleFsChange);
+      window.removeEventListener('sapo-net-update', syncNet);
       clearInterval(interval);
     };
   }, [engine]);
 
-  const handleTogglePartner = () => {
-    if (!engine) return;
-    engine.toggleBotPartner();
-    setPartnerOn(engine.botPartner.active);
+  const handleToggleCoopPopover = () => {
+    if (engine?.netRoom) {
+      setRoomInput(engine.netRoom);
+    }
+    setShowCoopPopover((v) => !v);
   };
 
   const handleToggleTouchControls = () => {
@@ -199,19 +214,22 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
   return (
     <>
-      {/* Top Right Pixel-Art Arcade Action Bar (Responsive & With Fullscreen Toggle) */}
+      {/* Top Right Pixel-Art Arcade Action Bar (Responsive & With Real Online Co-op & Fullscreen Toggle) */}
       <div className="fixed top-1.5 right-1.5 sm:top-2 sm:right-2.5 z-30 flex flex-wrap items-center justify-end gap-1 sm:gap-1.5 pointer-events-auto select-none max-w-[72vw]">
         <button
-          onClick={handleTogglePartner}
+          onClick={handleToggleCoopPopover}
+          data-testid="hud-btn-coop"
           className={`px-1.5 sm:px-2 py-1 border-2 font-mono text-[9px] sm:text-[11px] font-black shadow-[0_3px_0_#040805] active:translate-y-0.5 cursor-pointer transition-all flex items-center gap-1 ${
-            partnerOn
+            netRoom
               ? 'bg-[#004d40] border-[#00e5ff] text-[#84ffff]'
               : 'bg-[#0c1a12ee] hover:bg-[#162e20] border-[#66bb6a] text-[#e8f5e9]'
           }`}
-          title="Alternar Parceiro Co-op (TAB)"
+          title="Sala Co-op Online em Tempo Real (Sem Bot)"
         >
           <PixelIcon sprite={engine?.S?.pIdle?.[1]} size={13} />
-          <span className="hidden xs:inline">{partnerOn ? 'CO-OP' : '+CO-OP'}</span>
+          <span className="hidden xs:inline">
+            {netRoom ? `SALA: ${netRoom.toUpperCase()} (${onlineCount + 1}P)` : 'CO-OP ONLINE'}
+          </span>
         </button>
 
         <button
@@ -284,6 +302,83 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           <span className="hidden sm:inline">ESC</span>
         </button>
       </div>
+
+      {/* Inline Real Online Multiplayer Co-op Room Popover (Zero Bots) */}
+      {showCoopPopover && engine && (
+        <div
+          className="fixed top-11 right-2 z-40 w-72 bg-[#071418f5] border-2 border-[#00e5ff] p-3 shadow-[6px_6px_0_#000] font-mono text-xs select-none pointer-events-auto"
+          data-testid="hud-coop-popover"
+        >
+          <div className="flex items-center justify-between border-b border-[#006064] pb-1.5 mb-2">
+            <span className="font-black text-[#00e5ff] text-[10px]">
+              CO-OP ONLINE REAL (SEM BOT)
+            </span>
+            <button
+              onClick={() => setShowCoopPopover(false)}
+              className="text-[10px] font-bold text-[#84ffff] hover:text-white cursor-pointer"
+            >
+              [X]
+            </button>
+          </div>
+          <div className="flex gap-1.5 mb-2">
+            <input
+              type="text"
+              value={roomInput}
+              onChange={(e) => setRoomInput(e.target.value.toLowerCase().slice(0, 12))}
+              placeholder="código (ex: sapo01)"
+              className="flex-1 bg-[#040a0c] border-2 border-[#00838f] text-[#ffd54f] font-bold px-2 py-1 text-xs uppercase focus:outline-none focus:border-[#00e5ff]"
+            />
+            <button
+              onClick={() => {
+                engine.joinMultiplayerRoom(roomInput || 'sapo01');
+                setNetRoom(engine.netRoom);
+              }}
+              className="px-2.5 py-1 bg-[#00acc1] hover:bg-[#00e5ff] text-[#041014] font-black text-[10px] border border-white cursor-pointer"
+            >
+              CONECTAR
+            </button>
+          </div>
+          {netRoom ? (
+            <div className="space-y-1.5 text-[10px] text-[#b2ebf2]">
+              <div className="flex items-center justify-between bg-[#040d10] px-2 py-1 border border-[#006064]">
+                <span>SALA ATIVA: <strong className="text-[#ffd54f]">{netRoom.toUpperCase()}</strong></span>
+                <span>{onlineCount + 1} JOGADOR(ES)</span>
+              </div>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => {
+                    const url = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(netRoom)}`;
+                    navigator.clipboard?.writeText(url).catch(() => {});
+                    engine.FT.push({
+                      x: engine.me.x,
+                      y: engine.me.y - 24,
+                      s: 'LINK DA SALA COPIADO!',
+                      c: '#00e5ff',
+                      l: 1.4,
+                    });
+                  }}
+                  className="flex-1 py-1 bg-[#0d262c] hover:bg-[#143942] border border-[#00e5ff] text-[#84ffff] font-bold cursor-pointer"
+                >
+                  COPIAR LINK
+                </button>
+                <button
+                  onClick={() => {
+                    engine.leaveMultiplayerRoom();
+                    setNetRoom('');
+                  }}
+                  className="px-2.5 py-1 bg-[#4a1218] hover:bg-[#6d1b24] border border-[#ff5252] text-[#ffcdd2] font-bold cursor-pointer"
+                >
+                  SAIR
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-[10px] text-[#80cbc4]">
+              Digite o mesmo código que seu amigo (ou abra outra aba com o mesmo código) para jogar juntos de verdade!
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Responsive Pixel-Art Mobile Twin-Stick & Action Controls */}
       {showTouch && (

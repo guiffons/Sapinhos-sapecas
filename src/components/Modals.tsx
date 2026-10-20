@@ -113,6 +113,12 @@ export const Modals: React.FC<ModalsProps> = ({
     };
   }, [engine]);
 
+  useEffect(() => {
+    const syncProgress = () => forceUpdate();
+    window.addEventListener('sapo-progress-update', syncProgress);
+    return () => window.removeEventListener('sapo-progress-update', syncProgress);
+  }, []);
+
   // Clear rebinding state when modal closes or changes
   useEffect(() => {
     if (activeModal !== 'options') {
@@ -317,39 +323,50 @@ export const Modals: React.FC<ModalsProps> = ({
             </div>
 
             {/* Category Tabs */}
-            <div className="flex gap-2 mb-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
               <button
                 onClick={() => setCodexTab('enemies')}
-                className={`flex-1 py-2 border-2 text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                className={`py-2 border-2 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                   codexTab === 'enemies'
                     ? 'bg-[#4a148c] border-[#ea80fc] text-white shadow-[0_2px_0_#1a0633]'
                     : 'bg-[#1a1026] border-[#311b47] text-[#9575cd] hover:text-white'
                 }`}
               >
-                <PixelIcon sprite={engine.S.m} size={16} />
-                <span>CRIATURAS & CHEFÕES ({ENEMY_INFO.length})</span>
+                <PixelIcon sprite={engine.S.m} size={15} />
+                <span>CRIATURAS ({ENEMY_INFO.length})</span>
               </button>
               <button
                 onClick={() => setCodexTab('weapons')}
-                className={`flex-1 py-2 border-2 text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                className={`py-2 border-2 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                   codexTab === 'weapons'
                     ? 'bg-[#4a148c] border-[#ea80fc] text-white shadow-[0_2px_0_#1a0633]'
                     : 'bg-[#1a1026] border-[#311b47] text-[#9575cd] hover:text-white'
                 }`}
               >
-                <PixelIcon sprite={engine.S.weapons?.[0]} size={16} />
+                <PixelIcon sprite={engine.S.weapons?.[0]} size={15} />
                 <span>HABILIDADES ({WP.length})</span>
               </button>
               <button
                 onClick={() => setCodexTab('relics')}
-                className={`flex-1 py-2 border-2 text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                className={`py-2 border-2 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                   codexTab === 'relics'
                     ? 'bg-[#4a148c] border-[#ea80fc] text-white shadow-[0_2px_0_#1a0633]'
                     : 'bg-[#1a1026] border-[#311b47] text-[#9575cd] hover:text-white'
                 }`}
               >
-                <PixelIcon sprite={engine.S.items?.[0]} size={16} />
+                <PixelIcon sprite={engine.S.items?.[0]} size={15} />
                 <span>MUTAÇÕES ({IT.length})</span>
+              </button>
+              <button
+                onClick={() => setCodexTab('pacts')}
+                className={`py-2 border-2 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                  codexTab === 'pacts'
+                    ? 'bg-[#4a148c] border-[#ea80fc] text-white shadow-[0_2px_0_#1a0633]'
+                    : 'bg-[#1a1026] border-[#311b47] text-[#9575cd] hover:text-white'
+                }`}
+              >
+                <PixelIcon sprite={engine.S.shrine} size={15} />
+                <span>PACTOS ({PACT_LIST.length})</span>
               </button>
             </div>
 
@@ -455,6 +472,40 @@ export const Modals: React.FC<ModalsProps> = ({
                   })}
                 </div>
               )}
+
+              {codexTab === 'pacts' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {PACT_LIST.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex items-center gap-3 p-2.5 bg-[#1a1128] border-2 border-[#ea80fc]"
+                    >
+                      <div className="w-11 h-11 bg-[#0c0714] border border-[#ea80fc] flex items-center justify-center shrink-0">
+                        <PixelIcon sprite={engine.S.shrine} size={26} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-bold text-xs text-[#ffd54f] truncate">
+                            {p.nm}
+                          </span>
+                          <span
+                            className="text-[9px] font-black px-1.5 py-0.5 border border-black/40"
+                            style={{ color: p.col }}
+                          >
+                            ALTAR DO BREJO
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-[#69f0ae] mt-0.5">
+                          BÔNUS: {p.boon}
+                        </div>
+                        <div className="text-[10px] text-[#ff8a80] mt-0.5">
+                          PREÇO: {p.curse}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -484,14 +535,14 @@ export const Modals: React.FC<ModalsProps> = ({
 
             <div className="flex justify-between items-center px-3 py-2 bg-[#060d09] border-2 border-[#2e573c] mb-3 font-mono">
               <span className="text-[11px] text-[#a5d6a7] font-bold">
-                Cada conquista concede +3 Larvas e bônus passivo permanente!
+                Cada conquista concede +1 Larva e bônus passivo permanente!
               </span>
               <button
                 onClick={() => {
                   engine.achStats.kills = Math.max(engine.achStats.kills, 20);
                   engine.achStats.maxItems = Math.max(engine.achStats.maxItems, 5);
                   engine.achStats.maxDmg = Math.max(engine.achStats.maxDmg, 5.0);
-                  engine.achStats.larvae += 30;
+                  engine.achStats.larvae += 15;
                   ACH_LIST.forEach((a) => (engine.achData[a.id] = Date.now()));
                   engine.saveProgress();
                   engine.snd(600, 0.3, 'triangle', 0.09, 400);
@@ -570,28 +621,78 @@ export const Modals: React.FC<ModalsProps> = ({
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-              {/* Quick In-Game Session Actions (Concise access for Mobile & Desktop) */}
+              {/* Real Online Multiplayer Co-op Room Section (Zero Bots) */}
+              <div className="p-3 bg-[#061318] border-2 border-[#00e5ff] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black text-[#00e5ff] tracking-wider">
+                    MULTIPLAYER CO-OP ONLINE REAL (SEM BOT)
+                  </span>
+                  <span className="text-[10px] font-bold text-[#ffd54f]">
+                    {engine.netRoom
+                      ? `SALA: ${engine.netRoom.toUpperCase()} (${Object.keys(engine.netPlayers).length + 1}P)`
+                      : 'DESCONECTADO'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input
+                    type="text"
+                    value={playerNameInput}
+                    onChange={(e) => setPlayerNameInput(e.target.value.slice(0, 12))}
+                    placeholder="Seu apelido"
+                    className="bg-[#040a0c] border border-[#00838f] text-[#e0f7fa] px-2 py-1 text-xs font-bold"
+                  />
+                  <input
+                    type="text"
+                    value={coopCodeInput}
+                    onChange={(e) => setCoopCodeInput(e.target.value.toLowerCase().slice(0, 12))}
+                    placeholder="Código da sala"
+                    className="bg-[#040a0c] border border-[#00838f] text-[#ffd54f] px-2 py-1 text-xs font-bold uppercase"
+                  />
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => {
+                        engine.joinMultiplayerRoom(coopCodeInput || 'sapo01', playerNameInput);
+                        forceUpdate();
+                      }}
+                      className="flex-1 py-1 bg-[#00acc1] hover:bg-[#00e5ff] text-[#041014] font-black text-xs border border-white cursor-pointer"
+                    >
+                      ENTRAR SALA
+                    </button>
+                    {engine.netRoom && (
+                      <button
+                        onClick={() => {
+                          engine.leaveMultiplayerRoom();
+                          forceUpdate();
+                        }}
+                        className="px-2.5 py-1 bg-[#4a1218] hover:bg-[#6d1b24] text-[#ffcdd2] font-bold text-xs border border-[#ff5252] cursor-pointer"
+                      >
+                        SAIR
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {Object.keys(engine.netPlayers).length > 0 && (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {Object.values(engine.netPlayers).map((rp) => (
+                      <div
+                        key={rp.id}
+                        className="flex items-center gap-1.5 px-2 py-1 bg-[#040d10] border border-[#00acc1] text-[10px] text-[#84ffff]"
+                      >
+                        <PixelIcon sprite={engine.S.pIdle?.[rp.ch || 0]} size={13} />
+                        <span>{rp.name} ({CH[rp.ch || 0]?.n})</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Quick In-Game Session Actions */}
               {(engine.ST === 'play' || engine.ST === 'camp') && (
                 <div className="p-2.5 bg-[#06100a] border-2 border-[#1e3a27]">
                   <div className="text-[10px] font-black text-[#ffd54f] mb-2 tracking-wider">
                     AÇÕES DA PARTIDA
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <button
-                      onClick={() => {
-                        engine.toggleBotPartner();
-                        forceUpdate();
-                      }}
-                      className={`px-2 py-1.5 border-2 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
-                        engine.botPartner.active
-                          ? 'bg-[#004d40] border-[#00e5ff] text-[#84ffff]'
-                          : 'bg-[#112418] border-[#4caf50] text-[#e8f5e9]'
-                      }`}
-                    >
-                      <PixelIcon sprite={engine.S.pIdle?.[1]} size={14} />
-                      <span>{engine.botPartner.active ? 'CO-OP: ON' : 'CO-OP: OFF'}</span>
-                    </button>
-
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {onGoCamp && (
                       <button
                         onClick={() => {

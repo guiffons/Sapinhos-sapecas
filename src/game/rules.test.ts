@@ -234,5 +234,136 @@ test('wise grandpa frog shaman with staff and eyeless crystallized larva maggot 
   assert.ok(larvaJoined.includes('4'), 'Larva has crystal glint highlights');
 });
 
+import {
+  getFrogMouthOrigin,
+  initCastlevaniaWhipChain,
+  updateCastlevaniaWhipChain,
+} from './physics.ts';
+import {
+  CH,
+  PACT_LIST,
+  SHAMAN_UPG,
+  FLORA_MATS,
+  FLORA_MATS2,
+} from './constants.ts';
+
+test('getFrogMouthOrigin aligns projectile spawn with the frog mouth and Z elevation', () => {
+  const originRight = getFrogMouthOrigin(240, 160, 0, 0, 1, 0);
+  const originLeft = getFrogMouthOrigin(240, 160, 0, Math.PI, 1, 0);
+  assert.ok(originRight.x > 240, 'Facing right shifts mouth origin to the right of center');
+  assert.ok(originLeft.x < 240, 'Facing left shifts mouth origin to the left of center');
+
+  const originAir = getFrogMouthOrigin(240, 160, 15, 0, 1, 0);
+  assert.ok(
+    Math.abs(originRight.y - originAir.y - 15) < 0.01,
+    'Jumping in Z shifts mouth origin upward by exact Z elevation'
+  );
+});
+
+test('Castlevania-style always-out tongue whip chain moves with deliberate inertia and stays anchored to mouth', () => {
+  const chain = initCastlevaniaWhipChain(200, 150, 0, 42, 8);
+  assert.equal(chain.length, 8);
+  assert.equal(chain[0].x, 200);
+  assert.equal(Math.round(chain[7].x), 242);
+
+  // Swing aim 90 degrees downward; tip should lag smoothly behind rather than teleporting
+  updateCastlevaniaWhipChain(chain, 205, 152, Math.PI / 2, 42, 0.016, true);
+  assert.equal(chain[0].x, 205, 'Base segment stays anchored to frog mouth X');
+  assert.equal(chain[0].y, 152, 'Base segment stays anchored to frog mouth Y');
+  assert.ok(chain[7].y > 150 && chain[7].y < 192, 'Whip tip swings with deliberate inertia');
+
+  // Verify Dart (character 3) has slower balanced whip rate
+  assert.ok(CH[3].rt >= 0.4, `Expected Dart rate >= 0.40s for slower whip balance, got ${CH[3].rt}`);
+  assert.ok(WP[3].rt >= 0.4, `Expected Lingua-Chicote rate >= 0.40s, got ${WP[3].rt}`);
+});
+
+test('longer dungeon path to boss, multi-wave rooms, swamp idle flora frames, and slower progression economy', () => {
+  const grid = generateDungeonGrid(0, 12345);
+  let activeRooms = 0;
+  let bossDist = 0;
+  let multiWaveCount = 0;
+
+  for (let y = 0; y < 5; y++) {
+    for (let x = 0; x < 5; x++) {
+      const c = grid[y][x];
+      if (c.active) {
+        activeRooms++;
+        if (c.type === 'boss') bossDist = c.dist;
+        if (c.wavesTotal >= 2) multiWaveCount++;
+      }
+    }
+  }
+
+  assert.ok(activeRooms >= 11, `Expected at least 11 rooms per floor, got ${activeRooms}`);
+  assert.ok(bossDist >= 3, `Expected Boss BFS distance >= 3 from Start, got ${bossDist}`);
+  assert.ok(multiWaveCount >= 1, 'Expected multi-wave combat rooms on the path to Boss');
+
+  // Swamp idle flora has 2 animation frames for blinking/glowing
+  assert.equal(FLORA_MATS.length, FLORA_MATS2.length);
+  assert.notDeepEqual(FLORA_MATS[0], FLORA_MATS2[0]);
+
+  // Slower permanent larva progression costs and Swamp Pacts
+  assert.ok(SHAMAN_UPG[0].costs[0] >= 5, 'First Shaman upgrade should cost at least 5 larvae');
+  assert.equal(PACT_LIST.length, 4, 'Swamp Shrines should offer 4 pacts');
+});
+
+import {
+  updateAcidRainDrops,
+  applyWeatherProjectileDrift,
+} from './physics.ts';
+import type { RainDrop } from './physics.ts';
+
+test('acid rain and swamp storm particles with wind drift and projectile physics alteration', () => {
+  const drops: RainDrop[] = [
+    { x: 100, y: 50, len: 10, spd: 300, col: '#69f0ae', alpha: 0.5 },
+    { x: 200, y: 310, len: 12, spd: 320, col: '#76ff03', alpha: 0.6 },
+  ];
+
+  // Update drops with +20 windX over dt=0.1s
+  const splashes = updateAcidRainDrops(drops, 20, 0.1, 480, 320);
+  assert.ok(drops[0].x > 100, 'Raindrop drifted horizontally with swamp wind');
+  assert.ok(drops[0].y > 50, 'Raindrop moved downward with speed');
+
+  // Second drop was near floor (310 + 32 = 342 >= 320 - 16), should have generated a splash or recycled to top
+  assert.ok(drops[1].y < 50, 'Drop that reached swamp ground recycled to the top');
+
+  // Test projectile drift in swamp storm wind
+  const bullet = { vx: 200, vy: 0, tng: 0 };
+  applyWeatherProjectileDrift(bullet, 25, 5, 0.1, 1.0);
+  assert.ok(bullet.vx > 200, 'Bullet velocity shifted horizontally by swamp storm wind');
+  assert.ok(bullet.vy > 0, 'Bullet velocity shifted slightly vertically by wind drift');
+
+  // Whip tongue should not be blown away by wind drift
+  const tongueBullet = { vx: 180, vy: 0, tng: 1 };
+  applyWeatherProjectileDrift(tongueBullet, 25, 5, 0.1, 1.0);
+  assert.equal(tongueBullet.vx, 180, 'Tongue whip remains anchored and immune to wind drift');
+});
+
+import { CAULDRON_F1, CAULDRON_F2, CAULDRON_F3 } from './constants.ts';
+
+test('Dart Castlevania whip chain reaches generously and extends when whipped', () => {
+  const mouthX = 100;
+  const mouthY = 100;
+  const idleReach = 84;
+  const activeReach = 138;
+  const chain = initCastlevaniaWhipChain(mouthX, mouthY, 0, idleReach, 9);
+  assert.equal(chain.length, 9, 'Whip should have 9 segments');
+  assert.equal(chain[0].x, mouthX);
+
+  // When whipped actively forward along ang = 0, update over several frames
+  for (let frame = 0; frame < 20; frame++) {
+    updateCastlevaniaWhipChain(chain, mouthX, mouthY, 0, activeReach, 0.016, true);
+  }
+  const tip = chain[chain.length - 1];
+  assert.ok(tip.x > mouthX + 90, `Whip tip extended generously past 90px: ${tip.x}`);
+  assert.ok(Math.abs(tip.y - mouthY) < 10, 'Whip aimed forward along aim line');
+
+  // Verify Cauldron animation frames exist and have 16 lines
+  assert.equal(CAULDRON_F1.length, 16);
+  assert.equal(CAULDRON_F2.length, 16);
+  assert.equal(CAULDRON_F3.length, 16);
+});
+
+
 
 

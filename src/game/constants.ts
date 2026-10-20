@@ -468,45 +468,116 @@ export const CAMPFIRE_F2 = [
   "0556550055655000",".005566665500...","...0000000000..."
 ];
 
-// Wise Old Grandpa Frog Shaman with Gnarled Wooden Staff & Glowing Crystal Orb (20x16)
-// Palette: 0=outline, 1=white beard/brows, 2=frog skin, 3=pupil, 4=silver beard shade, 5=shaman robe/hood, 6=gold glasses/trim, 7=crystal orb cyan, 8=dark wood staff, 9=light wood staff, c=crystal core shine
+// Wise Old Elder Toad Shaman with Broad Froggy Head, Saggy Throat Pouch & Gnarled Swamp Staff (20x16)
+// Palette: 0=deep contour, 1=bone/gleam white, 2=mossy toad skin, 3=horizontal toad pupil, 4=saggy elder throat pouch, 5=shaman robe/hood, 6=golden toad iris, 7=relic cyan, 8=dark bogwood staff, 9=light wood, a=wart/moss, c=relic core sparkle
 export const SHAMAN_MAT = [
-  ".7c7....00000000....",
-  "7cc77..0555665550...",
-  ".777..055110011550..",
-  "..6...066136631660..",
-  ".080..061336633160..",
-  ".0980.026662266620..",
-  "..08002221111112220.",
-  "..09822511144111520.",
-  "..08005511411411550.",
-  "..090.055114411550..",
-  "..080..0551111550...",
-  "..090..0554114550...",
-  "..080..0225445220...",
-  "..080..0220..0220...",
-  "..080.0660....0660..",
-  "..00...00......00..."
+  ".7c7.....000000.....",
+  "7cc77...05555550....",
+  ".777...006610066100.",
+  "..8...02263300263320",
+  ".080..02226600226620",
+  ".0980.02222222222220",
+  "..080002220000222200",
+  "..098024444444444420",
+  "..080054444444444500",
+  "..090.0516161616150.",
+  "..080..05555555550..",
+  "..090..05555555550..",
+  "..080..02255555220..",
+  "..080.02200..00220.",
+  "..080.000......000..",
+  "..00................"
 ];
 
 export const SHAMAN_MAT2 = [
-  "7cc77...00000000....",
-  ".7c7...0555665550...",
-  "..6...055110011550..",
-  ".080..066316613660..",
-  ".0980.061336633160..",
-  "..080.026662266620..",
-  "..09802221111112220.",
-  "..08222511411411520.",
-  "..09005511144111550.",
-  "..080.055114411550..",
-  "..090..0554114550...",
-  "..080..0551111550...",
-  "..090..0225445220...",
-  "..080.0220....0220..",
-  "..080.0660....0660..",
-  "..00...00......00..."
+  "7cc77....000000.....",
+  ".7c7....05555550....",
+  "..8....006610066100.",
+  ".080..02263100263120",
+  ".0980.02226600226620",
+  "..080.02222222222220",
+  "..098002220000222200",
+  "..082024444444444420",
+  "..090054444444444500",
+  "..080.0516161616150.",
+  "..090..05555555550..",
+  "..080..05555555550..",
+  "..090..02255555220..",
+  "..080.02200..00220.",
+  "..080.000......000..",
+  "..00................"
 ];
+
+// Animated 3-Frame Bubbling Shaman Cauldron with Cast-Iron Legs, Hot Coals, and Steaming Magic Potion (18x16)
+// Palette: 0=iron outline, 1=dark iron shade, 2=iron metallic highlight, 3=potion cyan, 4=toxic lime, 5=bubble sparkle white, 6=hot ember orange, 7=fire spark yellow, 8=wooden ladle
+export const CAULDRON_F1 = [
+  ".....88...........",
+  "....8888..........",
+  "...0880222222220..",
+  "..008822222222220.",
+  ".0220034445444320.",
+  ".0113344554444310.",
+  "011144444444331110",
+  "011111111111111110",
+  "012111111111111210",
+  ".0121111111111210.",
+  "..01222222222210..",
+  "...000000000000...",
+  "...010..676..010..",
+  "..010..76677..010.",
+  "..020..67666..020.",
+  ".0000..00000..0000"
+];
+
+export const CAULDRON_F2 = [
+  ".....88....5......",
+  "....8888..555.....",
+  "...0880222252220..",
+  "..008822222222220.",
+  ".0220044543444320.",
+  ".0114455444433310.",
+  "011144444333331110",
+  "011111111111111110",
+  "012111111111111210",
+  ".0121111111111210.",
+  "..01222222222210..",
+  "...000000000000...",
+  "...010..767..010..",
+  "..010..67766..010.",
+  "..020..76676..020.",
+  ".0000..00000..0000"
+];
+
+export const CAULDRON_F3 = [
+  ".....88...........",
+  "....8888.......5..",
+  "...08802222222550.",
+  "..008822222222220.",
+  ".0220034443445320.",
+  ".0113334444554410.",
+  "011133334444441110",
+  "011111111111111110",
+  "012111111111111210",
+  ".0121111111111210.",
+  "..01222222222210..",
+  "...000000000000...",
+  "...010..667..010..",
+  "..010..76776..010.",
+  "..020..67677..020.",
+  ".0000..00000..0000"
+];
+
+export const CAULDRON_PAL: Record<string, string> = {
+  '0': '#080d0b',
+  '1': '#1e282d',
+  '2': '#455a64',
+  '3': '#00e5ff',
+  '4': '#69f0ae',
+  '5': '#ffffff',
+  '6': '#ff6d00',
+  '7': '#ffd54f',
+  '8': '#5d4037',
+};
 
 // Crystallized Fly Maggot / Larva (12x10, 2-frame wriggling segmented maggot — NO eyes, NO tongue, NO antennae!)
 // Palette: 0=deep crystal contour, 1=segment ring groove, 2=cyan crystal body, 3=ice-blue facet, 4=pure white crystal gleam
@@ -1218,7 +1289,7 @@ export const CH: CharacterDef[] = [
   { n: 'Croak', t: 'O Sapo do Brejo', c: '#66bb6a', sac: '#c8e6c9', a: '#81c784', hp: 6, sp: 95, dm: 2.0, rt: 0.34, wp: 0, fly: 0, sh: 0, hm: 0, pas: 'Cuspe Ácido + Atributos equilibrados', req: null, reqTxt: '', aff: [0, 4, 9, 8, 18] },
   { n: 'Bubbles', t: 'Rã das Espumas', c: '#29b6f6', sac: '#e1f5fe', a: '#b3e5fc', hp: 5, sp: 112, dm: 1.6, rt: 0.28, wp: 2, fly: 0, sh: 0, hm: 0, pas: 'Super veloz + Sopro de Bolhas da boca', req: null, reqTxt: '', aff: [1, 9, 15, 6, 11] },
   { n: 'Sapo-Boi', t: 'Colosso do Lodo', c: '#8d6e63', sac: '#ffe082', a: '#ff8a65', hp: 8, sp: 78, dm: 2.8, rt: 0.44, wp: 4, fly: 0, sh: 1, hm: 0, pas: 'Regurgita Bomba de Lodo + Bolha Escudo', req: 'b1', reqTxt: 'Conquista: Derrotar o 1º Boss', aff: [2, 7, 10, 15, 12] },
-  { n: 'Dart', t: 'Flecha Venenosa', c: '#3d5afe', sac: '#ff1744', a: '#00e5ff', hp: 4, sp: 124, dm: 2.7, rt: 0.30, wp: 3, fly: 0, sh: 0, hm: 0, pas: 'Estilingada de Língua Chicote + Vel. Máx', req: 'k20', reqTxt: 'Conquista: Caçador (20 abates)', aff: [3, 8, 7, 12, 18] },
+  { n: 'Dart', t: 'Flecha Venenosa', c: '#3d5afe', sac: '#ff1744', a: '#00e5ff', hp: 4, sp: 118, dm: 1.75, rt: 0.48, wp: 3, fly: 0, sh: 0, hm: 0, pas: 'Língua Chicote Contínua (Estilo Castlevania) + Vel. Alta', req: 'k20', reqTxt: 'Conquista: Caçador (20 abates)', aff: [3, 8, 7, 12, 18] },
   { n: 'Micélio', t: 'Sapo Esporo', c: '#ab47bc', sac: '#f8bbd0', a: '#ff5252', hp: 6, sp: 92, dm: 1.9, rt: 0.36, wp: 1, fly: 0, sh: 0, hm: 1, pas: 'Cospe Enxame de Girinos Teleguiados', req: 'it3', reqTxt: 'Conquista: Coletar 3 Mutações', aff: [5, 11, 10, 19, 14] },
   { n: 'Hypno-Toad', t: 'Entidade Abissal', c: '#37474f', sac: '#d500f9', a: '#ffd54f', hp: 6, sp: 102, dm: 2.5, rt: 0.40, wp: 5, fly: 1, sh: 0, hm: 0, pas: 'Voo Permanente + Onda Hipnótica Vocal', req: 'b2', reqTxt: 'Conquista: Vencer o 2º Boss', aff: [4, 10, 8, 19, 17] }
 ];
@@ -1227,16 +1298,16 @@ export const WP: WeaponDef[] = [
   { nm: 'Cuspe Ácido', rt: 1.0, dm: 1.0, sp: 235, r: 3.5, col: '#76ff03' },
   { nm: 'Enxame Girino', rt: 1.4, dm: 0.68, sp: 215, r: 3.2, n: 4, bnc: 1, col: '#64ffda' },
   { nm: 'Sopro de Bolhas', rt: 0.42, dm: 0.58, sp: 195, r: 4.2, jit: 0.28, aoe: 18, col: '#40c4ff' },
-  { nm: 'Língua Chicote', rt: 0.68, dm: 1.5, sp: 350, r: 4.8, pi: 1, tng: 1, l: 0.25, col: '#ff4081' },
+  { nm: 'Língua Chicote', rt: 1.45, dm: 0.82, sp: 145, r: 4.5, pi: 1, tng: 1, l: 0.42, col: '#ff4081' },
   { nm: 'Bomba de Lodo', rt: 2.0, dm: 2.6, sp: 175, r: 6.5, aoe: 34, pool: 1, col: '#b2ff59' },
   { nm: 'Onda Hipnótica', rt: 1.65, dm: 2.2, sp: 400, r: 5.0, pi: 1, beam: 1, col: '#e040fb' }
 ];
 
 export const RAR_INFO: RarityInfo[] = [
-  { nm: 'COMUM', col: '#66bb6a', cost: 20 },
-  { nm: 'RARO', col: '#29b6f6', cost: 35 },
-  { nm: 'ÉPICO', col: '#ab47bc', cost: 52 },
-  { nm: 'LENDÁRIO', col: '#ffd54f', cost: 75 }
+  { nm: 'COMUM', col: '#66bb6a', cost: 24 },
+  { nm: 'RARO', col: '#29b6f6', cost: 42 },
+  { nm: 'ÉPICO', col: '#ab47bc', cost: 62 },
+  { nm: 'LENDÁRIO', col: '#ffd54f', cost: 88 }
 ];
 
 export const IT: [string, string, number][] = [
@@ -1262,6 +1333,425 @@ export const IT: [string, string, number][] = [
   ['CLONE DE LODO', 'Espírito anfíbio duplica ataques', 3]
 ];
 
+export interface MutationDetail {
+  id: number;
+  name: string;
+  tagline: string;
+  rarity: 0 | 1 | 2 | 3;
+  rarityName: string;
+  rarityColor: string;
+  category: 'Ataque' | 'Defesa' | 'Mobilidade' | 'Especial' | 'Biológico';
+  bonuses: string[];
+  penalties: string[];
+  affinityFrogs: string[];
+  affinityText: string;
+  synergyNames: string[];
+}
+
+export const MUTATION_DETAILS: Record<number, MutationDetail> = {
+  0: {
+    id: 0,
+    name: '+DANO ÁCIDO',
+    tagline: 'Glândulas salivares hiper-ácidas concentradas',
+    rarity: 0,
+    rarityName: 'COMUM',
+    rarityColor: '#66bb6a',
+    category: 'Ataque',
+    bonuses: [
+      '+0.9 de Dano base em cuspes e ataques corporais (+1.08 c/ Afinidade)',
+      'Escala com multiplicadores de upgrades permanentes do Xamã',
+      'Ativa o efeito corrosivo de veneno avançado'
+    ],
+    penalties: [
+      'Nenhuma penalidade direta em cadência ou mobilidade'
+    ],
+    affinityFrogs: ['Croak'],
+    affinityText: 'Croak ganha +20% de eficácia (+1.08 de Dano total)',
+    synergyNames: ['VENENO REAL']
+  },
+  1: {
+    id: 1,
+    name: '+CADÊNCIA',
+    tagline: 'Músculos bucais hiperativos e refluxo acelerado',
+    rarity: 0,
+    rarityName: 'COMUM',
+    rarityColor: '#66bb6a',
+    category: 'Ataque',
+    bonuses: [
+      '-20% de intervalo entre cuspes / chicotadas (-24% c/ Afinidade)',
+      'Disparos contínuos aumentam drasticamente o DPS sustentado',
+      'Permite reagir com mais velocidade a hordas de moscas'
+    ],
+    penalties: [
+      'Disparos mais frenéticos exigem correções constantes de mira'
+    ],
+    affinityFrogs: ['Bubbles'],
+    affinityText: 'Bubbles reduz o intervalo em 24% ao invés de 20%',
+    synergyNames: []
+  },
+  2: {
+    id: 2,
+    name: '+VIDA MÁXIMA',
+    tagline: 'Camada de gordura e tecido regenerativo espesso',
+    rarity: 0,
+    rarityName: 'COMUM',
+    rarityColor: '#66bb6a',
+    category: 'Defesa',
+    bonuses: [
+      '+2 Corações de Vida Máxima permanente (+3 c/ Afinidade)',
+      'Cura imediatamente 2 Corações ao coletar a mutação',
+      'Aumenta a margem de sobrevivência contra chefes brutais'
+    ],
+    penalties: [
+      'Nenhuma penalidade de peso ou velocidade'
+    ],
+    affinityFrogs: ['Sapo-Boi'],
+    affinityText: 'Sapo-Boi recebe +3 Corações Máximos e regeneração extra',
+    synergyNames: []
+  },
+  3: {
+    id: 3,
+    name: '+VELOCIDADE',
+    tagline: 'Barbatanas membranosas e ligamentos elásticos nas patas',
+    rarity: 0,
+    rarityName: 'COMUM',
+    rarityColor: '#66bb6a',
+    category: 'Mobilidade',
+    bonuses: [
+      '+15 de Velocidade de Movimento base (+18 c/ Afinidade)',
+      'Acelera a esquiva horizontal e vertical contra tiros teleguiados',
+      'Reduz o tempo de travessia entre extremidades da sala'
+    ],
+    penalties: [
+      'Velocidade elevada requer controle apurado perto de espinhos e poças ácidas'
+    ],
+    affinityFrogs: ['Dart'],
+    affinityText: 'Dart alcança +18 de Velocidade máxima',
+    synergyNames: []
+  },
+  4: {
+    id: 4,
+    name: 'PERFURANTE',
+    tagline: 'Enzimas ácidas que dissolvem carapaças e atravessam corpos',
+    rarity: 1,
+    rarityName: 'RARO',
+    rarityColor: '#29b6f6',
+    category: 'Ataque',
+    bonuses: [
+      'Projéteis e ataques atravessam múltiplos inimigos em linha reta',
+      '+0.3 de Dano extra com Afinidade',
+      'Excelente eficácia para limpar corredores cheios de monstros'
+    ],
+    penalties: [
+      'Projéteis não explodem no primeiro contato ao perfurar'
+    ],
+    affinityFrogs: ['Croak', 'Hypno-Toad'],
+    affinityText: 'Croak e Hypno-Toad ganham +0.3 de Dano base adicional',
+    synergyNames: ['PRISMA ABISSAL', 'VENENO REAL']
+  },
+  5: {
+    id: 5,
+    name: 'OLHO HIPNÓTICO',
+    tagline: 'Terceiro olho bioluminescente na testa com visão planar',
+    rarity: 2,
+    rarityName: 'ÉPICO',
+    rarityColor: '#ab47bc',
+    category: 'Especial',
+    bonuses: [
+      'Cuspes e girinos teleguiam suavemente em direção aos alvos mais próximos',
+      '+0.35 de Dano extra com Afinidade',
+      'Garante acertos consistentes mesmo atirando em ângulos oblíquos'
+    ],
+    penalties: [
+      'Curvatura pode ser puxada por inimigos secundários indesejados'
+    ],
+    affinityFrogs: ['Micélio'],
+    affinityText: 'Micélio recebe atração magnética reforçada e +0.35 Dano',
+    synergyNames: ['CARDUME VORAZ']
+  },
+  6: {
+    id: 6,
+    name: 'BOLHA ESCUDO',
+    tagline: 'Membrana mucosa protetora auto-regenerável',
+    rarity: 1,
+    rarityName: 'RARO',
+    rarityColor: '#29b6f6',
+    category: 'Defesa',
+    bonuses: [
+      'Absorve e anula 100% do primeiro golpe sofrido em CADA sala',
+      'Renova automaticamente ao atravessar portas para novas salas',
+      'Impedimento vital contra armadilhas surpresa e tiros erráticos'
+    ],
+    penalties: [
+      'Não recarrega dentro da mesma sala após ser estourada'
+    ],
+    affinityFrogs: ['Bubbles', 'Sapo-Boi'],
+    affinityText: 'Bubbles e Sapo-Boi iniciam com escudo duplo protetor',
+    synergyNames: []
+  },
+  7: {
+    id: 7,
+    name: 'CUSPE GIGANTE',
+    tagline: 'Garganta dilatada e glândula de saliva hiper-expandida',
+    rarity: 1,
+    rarityName: 'RARO',
+    rarityColor: '#29b6f6',
+    category: 'Ataque',
+    bonuses: [
+      'Disparos bucais e língua chicote crescem +65% (+80% c/ Afinidade)',
+      'Área de impacto titânica atinge grupos inteiros com facilidade',
+      'Aumenta ligeiramente a massa de impacto dos ataques'
+    ],
+    penalties: [
+      'Hitbox expandida pode colidir com pilares se atirar colado a quinas'
+    ],
+    affinityFrogs: ['Sapo-Boi', 'Dart'],
+    affinityText: 'Dart e Sapo-Boi ganham +80% de escala e alcance',
+    synergyNames: ['LÍNGUA HIDRA']
+  },
+  8: {
+    id: 8,
+    name: 'TIRO TRIPLO',
+    tagline: 'Traqueia bifurcada em leque com canais triplos',
+    rarity: 2,
+    rarityName: 'ÉPICO',
+    rarityColor: '#ab47bc',
+    category: 'Ataque',
+    bonuses: [
+      'Dispara 3 cuspes em leque a cada ataque (+200% de cobertura)',
+      'Triplica o número de projéteis ativos na arena',
+      'Devastador à queima-roupa contra chefes e campeões'
+    ],
+    penalties: [
+      'Dispersão angular lateral reduz o dano focado à longa distância'
+    ],
+    affinityFrogs: ['Dart', 'Hypno-Toad'],
+    affinityText: 'Dart e Hypno-Toad concentram o leque em 15° mais fechado',
+    synergyNames: ['LÍNGUA HIDRA']
+  },
+  9: {
+    id: 9,
+    name: 'GLÂNDULA ÁCIDA',
+    tagline: 'Lodo corrosivo efervescente que derrete o solo do brejo',
+    rarity: 1,
+    rarityName: 'RARO',
+    rarityColor: '#29b6f6',
+    category: 'Biológico',
+    bonuses: [
+      'Cria poças de ácido tóxico no chão no impacto por 2.2 segundos',
+      'Causa dano contínuo a inimigos terrestres e destrói larvas',
+      'Excelente controle de área contra inimigos de avanço rápido'
+    ],
+    penalties: [
+      'Inimigos voadores (Vespas e Espectros) ignoram o dano da poça no solo'
+    ],
+    affinityFrogs: ['Croak', 'Bubbles'],
+    affinityText: 'Croak e Bubbles aumentam a duração da poça para 3.2s',
+    synergyNames: ['DILÚVIO DE ESPUMA']
+  },
+  10: {
+    id: 10,
+    name: 'SAPO RICOCHETE',
+    tagline: 'Saliva emborrachada de alta tensão superficial',
+    rarity: 1,
+    rarityName: 'RARO',
+    rarityColor: '#29b6f6',
+    category: 'Ataque',
+    bonuses: [
+      'Projéteis quicam nas paredes e rochas +2 vezes (+3 c/ Afinidade)',
+      'Permite atingir inimigos em cantos cegos sem se expor à linha de tiro',
+      'Projéteis permanecem ativos por mais tempo em salas fechadas'
+    ],
+    penalties: [
+      'Rebotes múltiplos podem poluir a tela com trajetórias imprevisíveis'
+    ],
+    affinityFrogs: ['Sapo-Boi', 'Micélio'],
+    affinityText: 'Sapo-Boi e Micélio garantem +3 quiques adicionais',
+    synergyNames: ['MORTEIRO SALTITANTE', 'PRISMA ABISSAL']
+  },
+  11: {
+    id: 11,
+    name: 'GIRINO GUARDIÃO',
+    tagline: 'Filhote fiel que orbita seu progenitor no brejo',
+    rarity: 2,
+    rarityName: 'ÉPICO',
+    rarityColor: '#ab47bc',
+    category: 'Especial',
+    bonuses: [
+      'Invoca 1 Girino orbital que cospe projéteis em sincronia',
+      'Pode acumular múltiplos familiares para formar um anel defensivo',
+      'Bloqueia certos disparos inimigos menores ao interceptá-los'
+    ],
+    penalties: [
+      'Órbita fixa a 32px pode colidir com paredes se você ficar colado a elas'
+    ],
+    affinityFrogs: ['Bubbles', 'Micélio'],
+    affinityText: 'Bubbles e Micélio aumentam a cadência do girino em +25%',
+    synergyNames: ['CARDUME VORAZ']
+  },
+  12: {
+    id: 12,
+    name: 'VAMPIRO DO BREJO',
+    tagline: 'Presas retráteis com glândulas hemotróficas',
+    rarity: 2,
+    rarityName: 'ÉPICO',
+    rarityColor: '#ab47bc',
+    category: 'Biológico',
+    bonuses: [
+      'Recupera +1 Coração de vida a cada 14 inimigos eliminados',
+      'Garante sustentabilidade infinita em andares com muitas ondas',
+      'Feedback sonoro e visual a cada ativação da cura'
+    ],
+    penalties: [
+      'Ineficaz em lutas contra chefes solitários sem lacaios para abater'
+    ],
+    affinityFrogs: ['Dart', 'Sapo-Boi'],
+    affinityText: 'Dart e Sapo-Boi ativam a cura a cada 11 abates (ao invés de 14)',
+    synergyNames: []
+  },
+  13: {
+    id: 13,
+    name: 'ASAS DE LIBÉLULA',
+    tagline: 'Asas translúcidas de inseto brotando do dorso anfíbio',
+    rarity: 2,
+    rarityName: 'ÉPICO',
+    rarityColor: '#ab47bc',
+    category: 'Mobilidade',
+    bonuses: [
+      'Voo livre contínuo sobrevoando água ácida, buracos e espinhos',
+      'Imunidade total a qualquer perigo de piso no chão de todas as arenas',
+      'Mobilidade e liberdade tridimensional para posicionamento'
+    ],
+    penalties: [
+      'Continua vulnerável a projéteis aéreos e mordidas normais'
+    ],
+    affinityFrogs: ['Hypno-Toad', 'Bubbles'],
+    affinityText: 'Hypno-Toad e Bubbles ganham +10% de velocidade de voo',
+    synergyNames: []
+  },
+  14: {
+    id: 14,
+    name: 'HIPER-ÓRGÃO VOCAL',
+    tagline: 'Saco vocal ressonante com câmara de compressão acústica',
+    rarity: 0,
+    rarityName: 'COMUM',
+    rarityColor: '#66bb6a',
+    category: 'Ataque',
+    bonuses: [
+      '+30% de Velocidade nos projéteis e +0.45 de Dano bucal',
+      'Aplica empurrão moderado nos inimigos atingidos',
+      'Projéteis chegam ao alvo quase que instantaneamente'
+    ],
+    penalties: [
+      'Inimigos empurrados podem sair da área de dano de curto alcance'
+    ],
+    affinityFrogs: ['Micélio', 'Dart'],
+    affinityText: 'Micélio e Dart ganham +0.65 de Dano ao invés de +0.45',
+    synergyNames: []
+  },
+  15: {
+    id: 15,
+    name: 'GOSMA VOLÁTIL',
+    tagline: 'Substância gelatinosa instável que detona sob pressão',
+    rarity: 2,
+    rarityName: 'ÉPICO',
+    rarityColor: '#ab47bc',
+    category: 'Ataque',
+    bonuses: [
+      'Cuspes e ataques explodem em raio de 24px no impacto',
+      'Dano em área atinge múltiplos inimigos e destrói obstáculos frágeis',
+      'Limpa enxames densos com pouquíssimos disparos'
+    ],
+    penalties: [
+      'Dano é dispersado em área, exigindo acertar no centro do grupo'
+    ],
+    affinityFrogs: ['Bubbles', 'Sapo-Boi'],
+    affinityText: 'Bubbles e Sapo-Boi aumentam o raio da explosão para 32px',
+    synergyNames: ['MORTEIRO SALTITANTE', 'DILÚVIO DE ESPUMA']
+  },
+  16: {
+    id: 16,
+    name: 'CUSPE TRASEIRO',
+    tagline: 'Orifício bucal dorsal secundário apontado para trás',
+    rarity: 0,
+    rarityName: 'COMUM',
+    rarityColor: '#66bb6a',
+    category: 'Ataque',
+    bonuses: [
+      'Dispara automaticamente 1 projétil extra a 180° para trás a cada ataque',
+      'Protege sua retaguarda contra inimigos rápidos que tentam cercar',
+      'Dobra a frequência de disparos sem gastar munição extra'
+    ],
+    penalties: [
+      'Não é possível controlar a mira do tiro traseiro de forma independente'
+    ],
+    affinityFrogs: ['Croak', 'Dart'],
+    affinityText: 'Croak e Dart aumentam o dano do disparo traseiro em +20%',
+    synergyNames: []
+  },
+  17: {
+    id: 17,
+    name: 'COROA DO PÂNTANO',
+    tagline: 'Relíquia ancestral coroando o soberano de todas as rãs',
+    rarity: 3,
+    rarityName: 'LENDÁRIO',
+    rarityColor: '#ffd54f',
+    category: 'Especial',
+    bonuses: [
+      '+0.65 Dano, +12% Cadência, +2 Corações Máximos e +10 Velocidade',
+      'Cura imediatamente 2 Corações de Vida ao ser coletada',
+      'Melhoria abrangente de todas as estatísticas primárias'
+    ],
+    penalties: [
+      'Nenhuma penalidade (Mutação Real Lendária)'
+    ],
+    affinityFrogs: ['Hypno-Toad'],
+    affinityText: 'Hypno-Toad recebe +1 Coração adicional e aura dourada',
+    synergyNames: []
+  },
+  18: {
+    id: 18,
+    name: 'SANGUE ANCIÃO',
+    tagline: 'Genoma primordial infundido com bioeletricidade estática',
+    rarity: 3,
+    rarityName: 'LENDÁRIO',
+    rarityColor: '#ffd54f',
+    category: 'Especial',
+    bonuses: [
+      'Multiplicador de Dano global x1.4 (+40% em TODOS os ataques)',
+      'Gera arcos elétricos que saltam entre inimigos próximos (88px)',
+      '+0.5 de Dano base imediato'
+    ],
+    penalties: [
+      'Arcos bioelétricos têm alcance limitado a 88px entre alvos'
+    ],
+    affinityFrogs: ['Croak', 'Dart'],
+    affinityText: 'Croak e Dart aumentam o número de arcos elétricos em +2',
+    synergyNames: []
+  },
+  19: {
+    id: 19,
+    name: 'CLONE DE LODO',
+    tagline: 'Gêmeo ectoplasmático que replica todos os reflexos motores',
+    rarity: 3,
+    rarityName: 'LENDÁRIO',
+    rarityColor: '#ffd54f',
+    category: 'Especial',
+    bonuses: [
+      'Espírito anfíbio gêmeo imita 100% de todos os seus disparos e ataques',
+      'Dobra o volume total de projéteis e DPS em combate',
+      'Atua como um segundo jogador espelhado na arena'
+    ],
+    penalties: [
+      'O clone replica movimentos com atraso de 0.25s em relação ao sapo'
+    ],
+    affinityFrogs: ['Micélio', 'Hypno-Toad'],
+    affinityText: 'Micélio e Hypno-Toad concedem ao clone +15% de precisão',
+    synergyNames: []
+  }
+};
+
+
 export const TH: BiomeTheme[] = [
   { nm: 'Lagoa Lamosa', f1: '#263e29', f2: '#203523', w: '#111f14', wl: '#192b1d', a: '#4caf50', ob: 0, hz: '#102830' },
   { nm: 'Esgoto Verde', f1: '#293832', f2: '#22302b', w: '#101a17', wl: '#182622', a: '#00e676', ob: 1, hz: '#1b4d2e' },
@@ -1280,7 +1770,7 @@ export const ACH_LIST: AchievementDef[] = [
   { id: 'b4', nm: 'Quebra-Jade', ds: 'Derrote o Golem de Jade (+1 Larva | +5% Cadência).', ic: 4, max: 1 },
   { id: 'win', nm: 'Deus Anfíbio Supremo', ds: 'Vença O Grande Ancião (+2 Larvas | Coroa Dourada).', ic: 17, max: 1 },
   { id: 'untouch', nm: 'Reflexo de Rã', ds: 'Limpe 1 sala sem dano (+1 Larva | +3% Veloc.).', ic: 6, max: 1 },
-  { id: 'coop', nm: 'Coral de Sapos', ds: 'Jogue em Co-op (+1 Larva | +10% Reanimação).', ic: 11, max: 1 },
+  { id: 'coop', nm: 'Coral de Sapos', ds: 'Jogue em Co-op Online (+1 Larva | +10% Reanimação).', ic: 11, max: 1 },
   { id: 'synergy', nm: 'Mutação Completa', ds: 'Acumule 5 mutações na run (+1 Larva | +5% Sorte).', ic: 5, max: 5 },
   { id: 'big_dmg', nm: 'Cuspe Letal', ds: 'Alcance 4.5 de Dano (+1 Larva | +0.2 Dano Base).', ic: 15, max: 4.5 },
   { id: 'fam', nm: 'Papai Sapo', ds: 'Consiga o Girino Guardião (+1 Larva).', ic: 11, max: 1 },
@@ -1289,11 +1779,29 @@ export const ACH_LIST: AchievementDef[] = [
 ];
 
 export const SHAMAN_UPG: ShamanUpgradeDef[] = [
-  { id: 'hp', nm: 'Vitalidade do Brejo', ds: '+1 Coração de Vida Máxima inicial por nível', costs: [3, 6, 10, 15, 22], ic: 2 },
-  { id: 'dm', nm: 'Glândula Pressurizada', ds: '+12% de Dano Base em todas as habilidades por nível', costs: [2, 5, 9, 14, 20], ic: 0 },
-  { id: 'sp', nm: 'Patas de Mola', ds: '+6% Velocidade e recarga mais rápida do Pulo Z', costs: [2, 4, 8, 12, 18], ic: 3 },
-  { id: 'gold', nm: 'Bolsa de Moscas', ds: 'Inicia cada run já com +4 Moscas de Ouro por nível', costs: [2, 4, 7, 11, 16], ic: 17 },
-  { id: 'luck', nm: 'Sorte Genética', ds: '+8% chance de Mutações Raras/Épicas/Lendárias', costs: [3, 6, 10, 15, 22], ic: 5 }
+  { id: 'hp', nm: 'Vitalidade do Brejo', ds: '+1 Coração de Vida Máxima inicial por nível', costs: [5, 10, 16, 24, 34], ic: 2 },
+  { id: 'dm', nm: 'Glândula Pressurizada', ds: '+12% de Dano Base em todas as habilidades por nível', costs: [5, 9, 15, 22, 30], ic: 0 },
+  { id: 'sp', nm: 'Patas de Mola', ds: '+6% Velocidade e recarga mais rápida do Pulo Z', costs: [4, 8, 14, 20, 28], ic: 3 },
+  { id: 'gold', nm: 'Bolsa de Moscas', ds: 'Inicia cada run já com +3 Moscas de Ouro por nível', costs: [4, 8, 13, 19, 26], ic: 17 },
+  { id: 'luck', nm: 'Sorte Genética', ds: '+7% chance de Mutações Raras/Épicas/Lendárias', costs: [5, 10, 16, 24, 34], ic: 5 }
+];
+
+export interface PactDef {
+  id: string;
+  nm: string;
+  ds: string;
+  reward: string;
+  boon: string;
+  curse: string;
+  col: string;
+  ic: number;
+}
+
+export const PACT_LIST: PactDef[] = [
+  { id: 'swarm', nm: 'Enxame Voraz', ds: '+1 Inimigo extra por onda de combate', reward: '+25% Moscas de Ouro', boon: '+25% Moscas de Ouro', curse: '+1 Inimigo por onda', col: '#ffd54f', ic: 11 },
+  { id: 'frenzy', nm: 'Lodo Frenético', ds: 'Inimigos se movem +18% mais rápido', reward: '+12% Sorte em Mutações', boon: '+12% Sorte Genética', curse: '+18% Veloc. Inimigos', col: '#69f0ae', ic: 3 },
+  { id: 'champions', nm: 'Sangue de Campeão', ds: 'Dobro de chance de Inimigos Campeões', reward: '+30% Moscas de Ouro', boon: '+30% Moscas de Ouro', curse: '2x Inimigos Campeões', col: '#ff4081', ic: 17 },
+  { id: 'glass', nm: 'Mutação Instável', ds: '+30% Dano causado, mas inicia com -1 Coração', reward: '+1 Chave extra por andar', boon: '+30% Dano & +1 Chave', curse: '-1 Coração Inicial', col: '#00e5ff', ic: 18 }
 ];
 
 export const HP_STATS: Record<string, number> = {
@@ -1393,7 +1901,7 @@ export const WEAPON_PALS: Record<string, string>[] = [
   { '0': '#1a062b', '1': '#7b1fa2', '2': '#e040fb', '3': '#ea80fc', '4': '#ffffff' }
 ];
 
-// Forager-style Interactive Flora & Crystal Nodes (8x8)
+// Forager-style Interactive Flora & Crystal Nodes (8x6) — Frame 1 (Idle) & Frame 2 (Blinking Bioluminescence)
 export const FLORA_MATS = [
   // 0: Lush Grass Tuft
   [
@@ -1424,11 +1932,63 @@ export const FLORA_MATS = [
   ]
 ];
 
-export const FLORA_PALS: Record<string, string>[] = [
-  { '0': '#0a160e', '1': '#2e7d32', '2': '#66bb6a' },
-  { '0': '#0a160e', '1': '#d7ccc8', '2': '#00b0ff', '3': '#80d8ff' },
-  { '0': '#0a160e', '1': '#388e3c', '2': '#ec407a', '3': '#f48fb1', '4': '#ffd54f' }
+export const FLORA_MATS2 = [
+  // 0: Lush Grass Tuft with Blinking Bioluminescent Firefly Dewdrop
+  [
+    "..3...4.",
+    ".21..21.",
+    ".11.2132",
+    "21121111",
+    ".111111.",
+    "..0000.."
+  ],
+  // 1: Glowing Swamp Mushroom with Blinking Spore Spots
+  [
+    "..0000..",
+    ".034430.",
+    "03422430",
+    "00011000",
+    "..0110..",
+    "..0000.."
+  ],
+  // 2: Swamp Lotus Flower with Blinking Golden-White Eye Core
+  [
+    ".030030.",
+    "03455430",
+    "02544520",
+    ".023320.",
+    "..0110..",
+    "...00..."
+  ]
 ];
+
+export const FLORA_PALS: Record<string, string>[] = [
+  { '0': '#0a160e', '1': '#2e7d32', '2': '#66bb6a', '3': '#b9f6ca', '4': '#ffd54f' },
+  { '0': '#0a160e', '1': '#d7ccc8', '2': '#00b0ff', '3': '#80d8ff', '4': '#ffffff' },
+  { '0': '#0a160e', '1': '#388e3c', '2': '#ec407a', '3': '#f48fb1', '4': '#ffd54f', '5': '#ffffff' }
+];
+
+export const SHRINE_MAT = [
+  "....0000....",
+  "..00122100..",
+  ".0123443210.",
+  ".0124554210.",
+  "..01233210..",
+  "...011110...",
+  "..01222210..",
+  ".0111111110.",
+  "012222222210",
+  ".0000000000."
+];
+
+export const SHRINE_PAL: Record<string, string> = {
+  '0': '#0b1610',
+  '1': '#37474f',
+  '2': '#607d8b',
+  '3': '#00bfa5',
+  '4': '#64ffda',
+  '5': '#ffffff'
+};
 
 export const CRYSTAL_MAT = [
   "....00....",
@@ -1441,4 +2001,5 @@ export const CRYSTAL_MAT = [
   ".00111100.",
   "...0000..."
 ];
+
 

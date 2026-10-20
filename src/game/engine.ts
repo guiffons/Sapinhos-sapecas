@@ -46,6 +46,10 @@ import {
   CAMPFIRE_F2,
   SHAMAN_MAT,
   SHAMAN_MAT2,
+  CAULDRON_F1,
+  CAULDRON_F2,
+  CAULDRON_F3,
+  CAULDRON_PAL,
   LARVA_MAT,
   LARVA_MAT2,
   TOTEM_MAT,
@@ -104,10 +108,25 @@ import {
   WEAPON_MATS,
   WEAPON_PALS,
   FLORA_MATS,
+  FLORA_MATS2,
   FLORA_PALS,
+  SHRINE_MAT,
+  SHRINE_PAL,
   CRYSTAL_MAT,
 } from './constants.ts';
-import { calculateZ, isJumpInvulnerable, calculateDPS, updateBouncingParticle } from './physics.ts';
+import {
+  calculateZ,
+  isJumpInvulnerable,
+  calculateDPS,
+  updateBouncingParticle,
+  getFrogMouthOrigin,
+  initCastlevaniaWhipChain,
+  updateCastlevaniaWhipChain,
+  WhipSegment,
+  RainDrop,
+  updateAcidRainDrops,
+  applyWeatherProjectileDrift,
+} from './physics.ts';
 import { getActiveSynergies } from './synergies.ts';
 import { generateDungeonGrid, DungeonCell, createPseudoRandom } from './dungeon.ts';
 import {
@@ -390,8 +409,9 @@ export interface FloorWorld {
   trapdoor: boolean;
 }
 
-export interface BotPartner {
-  active: boolean;
+export interface RemotePlayer {
+  id: string;
+  name: string;
   ch: number;
   w: number;
   x: number;
@@ -402,11 +422,16 @@ export interface BotPartner {
   mh: number;
   dead: boolean;
   revP: number;
-  cd: number;
   puff: number;
   wf: number;
-  j: number;
-  v: number;
+  its: number[];
+  gx: number;
+  gy: number;
+  bIdx: number;
+  ST: string;
+  lastSeen: number;
+  tongueTipX?: number;
+  tongueTipY?: number;
 }
 
 export class GameEngine {
@@ -437,6 +462,32 @@ export class GameEngine {
   FT: FloatingText[] = [];
   DC: Array<{ x: number; y: number; c: string; r: number }> = [];
 
+  // Persistent Castlevania-style Whip Tongue Chain for Dart (w === 3)
+  tongueChain: WhipSegment[] = [];
+  tongueHitTimers: Record<string, number> = {};
+  tongueHitCd: Record<number, number> = {};
+  tongueDummyCd = 0;
+  tongueActive = false;
+  tongueReach = 18;
+
+  // Real Online Multiplayer State (WebSockets + BroadcastChannel, Zero AI Bots)
+  netRoom = '';
+  netConnected = false;
+  netPlayers: Record<string, RemotePlayer> = {};
+  ws: WebSocket | null = null;
+  netSyncTimer = 0;
+  playerName = 'Sapo-' + Math.floor(10 + Math.random() * 89);
+
+  // Swamp Pact Modifiers & Run Telemetry
+  activePacts: Record<string, boolean> = {};
+  runStats = {
+    roomsCleared: 0,
+    wavesCleared: 0,
+    shrinesUsed: 0,
+    dmgDealt: 0,
+    startTime: 0,
+  };
+
   campNodes: Array<{
     x: number;
     y: number;
@@ -448,25 +499,6 @@ export class GameEngine {
     fl: number;
     col: string;
   }> = [];
-
-  botPartner: BotPartner = {
-    active: false,
-    ch: 1,
-    w: 2,
-    x: 268,
-    y: 235,
-    z: 0,
-    ang: 0,
-    hp: 6,
-    mh: 6,
-    dead: false,
-    revP: 0,
-    cd: 0,
-    puff: 0,
-    wf: 0,
-    j: 0,
-    v: 0,
-  };
 
   comboCount = 0;
   comboTimer = 0;
@@ -491,6 +523,7 @@ export class GameEngine {
     dummy: { x: 88, y: 152, j: 0, v: 0, fl: 0, hits: [] as Array<{ t: number; d: number }>, dps: 0 },
     shaman: { x: 92, y: 236 },
     sign: { x: 382, y: 118, bIdx: 0 },
+    pactAltar: { x: 382, y: 218 },
     portal: { x: 240, y: 48, t: 0 },
     logs: [
       { x: 184, y: 146, c: 0 },
@@ -530,6 +563,7 @@ export class GameEngine {
   onOpenShaman?: () => void;
   onOpenAchievements?: () => void;
   onOpenOptions?: () => void;
+  onOpenMultiplayer?: () => void;
 
   S: Record<string, any> = {};
   CAMP_BG: HTMLCanvasElement | null = null;
@@ -537,6 +571,26 @@ export class GameEngine {
   RK_CACHE: Record<string, Array<{ cx: number; cy: number; x: number; y: number }>> = {};
   HZ_CACHE: Record<string, any> = {};
   VIG!: HTMLCanvasElement;
+
+  weather: {
+    type: 'none' | 'acid_rain' | 'swamp_storm';
+    drops: RainDrop[];
+    windX: number;
+    windY: number;
+    intensity: number;
+    lightningTimer: number;
+    flashAlpha: number;
+    fogDensity: number;
+  } = {
+    type: 'acid_rain',
+    drops: [],
+    windX: 18,
+    windY: 4,
+    intensity: 1.0,
+    lightningTimer: 6.5,
+    flashAlpha: 0,
+    fogDensity: 0.12,
+  };
 
   audioCtx: AudioContext | null = null;
   running = false;
@@ -552,6 +606,7 @@ export class GameEngine {
     this.loadProgress();
     this.buildSprites();
     this.initVignette();
+    this.initWeather();
     this.initPlayer(0);
     this.reset(true);
 
@@ -574,6 +629,8 @@ export class GameEngine {
       this.achStats.maxDmg = saved.maxDmg || 2.0;
       this.achStats.larvae = saved.larvae || 0;
       if (saved.upg) this.achStats.upg = { ...this.achStats.upg, ...saved.upg };
+      if (saved.pacts) this.activePacts = { ...saved.pacts };
+      if (saved.playerName) this.playerName = saved.playerName;
       if (saved.cfg) {
         this.CFG = {
           ...this.CFG,
@@ -626,9 +683,16 @@ export class GameEngine {
           maxDmg: this.achStats.maxDmg,
           larvae: this.achStats.larvae,
           upg: this.achStats.upg,
+          pacts: this.activePacts,
+          playerName: this.playerName,
           cfg: this.CFG,
         })
       );
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('sapo-progress-update', { detail: { larvae: this.achStats.larvae } })
+        );
+      }
     } catch (e) {}
   }
 
@@ -687,6 +751,8 @@ export class GameEngine {
       ),
       weapons: WEAPON_MATS.map((m, i) => spr(m, WEAPON_PALS[i], 2)),
       flora: FLORA_MATS.map((m, i) => spr(m, FLORA_PALS[i], 2)),
+      flora2: FLORA_MATS2.map((m, i) => spr(m, FLORA_PALS[i], 2)),
+      shrine: spr(SHRINE_MAT, SHRINE_PAL, 2),
       crystal: spr(CRYSTAL_MAT, { '0': '#002f36', '1': '#00acc1', '2': '#00e5ff', '3': '#84ffff', '4': '#ffffff' }, 2),
       cross: spr(CROSS_MAT, { '0': '#111', '1': '#ffd54f', '2': '#00e676', '3': '#fff' }, 2),
       arrL: spr(ARR_L_MAT, { '0': '#0c1a10', '1': '#a5d6a7', '2': '#ffffff' }, 2),
@@ -708,37 +774,44 @@ export class GameEngine {
       shaman: spr(
         SHAMAN_MAT,
         {
-          '0': '#101c12',
+          '0': '#0d1a0f',
           '1': '#ffffff',
-          '2': '#558b2f',
-          '3': '#111111',
-          '4': '#cfd8dc',
+          '2': '#4a7c26',
+          '3': '#1a0f00',
+          '4': '#d7ccc8',
           '5': '#006064',
           '6': '#ffd54f',
           '7': '#00e5ff',
           '8': '#5d4037',
-          '9': '#a1887f',
-          c: '#e0f7fa',
+          '9': '#8d6e63',
+          a: '#76ff03',
+          c: '#84ffff',
         },
         2
       ),
       shaman2: spr(
         SHAMAN_MAT2,
         {
-          '0': '#101c12',
+          '0': '#0d1a0f',
           '1': '#ffffff',
-          '2': '#558b2f',
-          '3': '#111111',
+          '2': '#4a7c26',
+          '3': '#1a0f00',
           '4': '#cfd8dc',
           '5': '#00838f',
           '6': '#ffd54f',
           '7': '#84ffff',
           '8': '#5d4037',
-          '9': '#a1887f',
+          '9': '#8d6e63',
+          a: '#69f0ae',
           c: '#ffffff',
         },
         2
       ),
+      cauldron: [
+        spr(CAULDRON_F1, CAULDRON_PAL, 2),
+        spr(CAULDRON_F2, CAULDRON_PAL, 2),
+        spr(CAULDRON_F3, CAULDRON_PAL, 2),
+      ],
       larva: spr(LARVA_MAT, { '0': '#00262e', '1': '#00838f', '2': '#00e5ff', '3': '#84ffff', '4': '#ffffff' }, 2),
       larva2: spr(LARVA_MAT2, { '0': '#00262e', '1': '#00838f', '2': '#00e5ff', '3': '#84ffff', '4': '#ffffff' }, 2),
       totem: spr(TOTEM_MAT, { '0': '#1a1a1a', '1': '#37474f', '2': '#ff1744' }, 2),
@@ -839,55 +912,274 @@ export class GameEngine {
     this.VIG = k;
   }
 
+  initWeather() {
+    this.weather.drops = Array.from({ length: 55 }, () => ({
+      x: Math.random() * (W + 60) - 30,
+      y: Math.random() * H,
+      len: 6 + Math.random() * 8,
+      spd: 280 + Math.random() * 120,
+      col: Math.random() < 0.65 ? '#69f0ae' : Math.random() < 0.85 ? '#00e5ff' : '#76ff03',
+      alpha: 0.35 + Math.random() * 0.45,
+    }));
+  }
+
+  setupCellWeather(cell?: DungeonCell | null) {
+    if (!cell) {
+      this.weather.type = 'acid_rain';
+      this.weather.intensity = 0.55;
+      this.weather.windX = 14;
+      this.weather.windY = 3;
+      this.weather.fogDensity = 0.08;
+      return;
+    }
+
+    if (cell.type === 'boss') {
+      this.weather.type = 'swamp_storm';
+      this.weather.intensity = 1.35;
+      this.weather.windX = 32;
+      this.weather.windY = 8;
+      this.weather.fogDensity = 0.22;
+      this.weather.lightningTimer = 3.5;
+    } else if (this.wd.bIdx === 0) {
+      // Lagoa Lamosa: Acid Rain with gentle swamp wind
+      const isStorm = (cell.lay % 2 === 1) && Math.random() < 0.35;
+      this.weather.type = isStorm ? 'swamp_storm' : 'acid_rain';
+      this.weather.intensity = isStorm ? 1.2 : 0.85;
+      this.weather.windX = isStorm ? 28 : 16;
+      this.weather.windY = isStorm ? 6 : 3;
+      this.weather.fogDensity = isStorm ? 0.18 : 0.11;
+    } else if (this.wd.bIdx === 1) {
+      // Esgoto Verde: Toxic acid drizzle with reverse wind
+      this.weather.type = 'acid_rain';
+      this.weather.intensity = 1.1;
+      this.weather.windX = -22;
+      this.weather.windY = 5;
+      this.weather.fogDensity = 0.16;
+    } else if (cell.type === 'shop' || cell.type === 'start') {
+      this.weather.type = 'acid_rain';
+      this.weather.intensity = 0.4;
+      this.weather.windX = 8;
+      this.weather.windY = 2;
+      this.weather.fogDensity = 0.06;
+    } else {
+      const isStorm = Math.random() < 0.3;
+      this.weather.type = isStorm ? 'swamp_storm' : 'acid_rain';
+      this.weather.intensity = isStorm ? 1.25 : 0.9;
+      this.weather.windX = (Math.random() < 0.5 ? 1 : -1) * (15 + Math.random() * 15);
+      this.weather.windY = 4;
+      this.weather.fogDensity = isStorm ? 0.2 : 0.12;
+    }
+  }
+
   initNetChannel() {
     try {
       this.bc = new BroadcastChannel('sapinhos_coop_broadcast');
       this.bc.onmessage = (ev) => {
         const m = ev.data;
         if (!m || !m.t) return;
-        this.handleNetMsg(m.t, m.d);
+        if (m.room && m.room !== this.netRoom) return;
+        this.handleNetMsg(m.t, m.d, m.from);
       };
     } catch (e) {}
   }
 
-  emitNet(t: string, d: any) {
-    if (this.bc) {
-      try {
-        this.bc.postMessage({ t, d });
-      } catch (e) {}
+  joinMultiplayerRoom(roomCode: string, customName?: string) {
+    const cleanCode = String(roomCode || 'sapo01')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '')
+      .slice(0, 12);
+    if (!cleanCode) return;
+
+    if (customName && customName.trim()) {
+      this.playerName = customName.trim().slice(0, 14);
+      this.saveProgress();
     }
+
+    this.netRoom = cleanCode;
+    this.netPlayers = {};
+
+    // Connect to Real WebSocket Multiplayer Server on same origin (/ws)
+    try {
+      if (this.ws) {
+        this.ws.close();
+        this.ws = null;
+      }
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${proto}//${window.location.host}/ws`;
+      const socket = new WebSocket(wsUrl);
+      this.ws = socket;
+
+      socket.onopen = () => {
+        this.netConnected = true;
+        socket.send(
+          JSON.stringify({
+            t: 'join',
+            room: cleanCode,
+            id: this.me.id,
+            name: this.playerName,
+            ch: this.ch,
+            state: this.buildMyNetState(),
+          })
+        );
+        this.broadcastMultiplayerState();
+        window.dispatchEvent(new CustomEvent('sapo-net-update'));
+      };
+
+      socket.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (!msg || !msg.t) return;
+          if (msg.t === 'roster' && Array.isArray(msg.members)) {
+            const activeIds = new Set<string>();
+            for (const m of msg.members) {
+              if (m.id === this.me.id) continue;
+              activeIds.add(m.id);
+              const existing = this.netPlayers[m.id];
+              if (!existing) {
+                this.netPlayers[m.id] = {
+                  id: m.id,
+                  name: m.name || `Sapo-${m.id.slice(0, 3)}`,
+                  ch: m.ch || 0,
+                  w: CH[m.ch || 0]?.wp || 0,
+                  x: m.state?.x ?? this.me.x + 24,
+                  y: m.state?.y ?? this.me.y,
+                  z: m.state?.z ?? 0,
+                  ang: m.state?.ang ?? 0,
+                  hp: m.state?.hp ?? 6,
+                  mh: m.state?.mh ?? 6,
+                  dead: !!m.state?.dead,
+                  revP: 0,
+                  puff: 0,
+                  wf: 0,
+                  its: m.state?.its || [],
+                  gx: m.state?.gx ?? this.wd.gx,
+                  gy: m.state?.gy ?? this.wd.gy,
+                  bIdx: m.state?.bIdx ?? this.wd.bIdx,
+                  ST: m.state?.ST || this.ST,
+                  lastSeen: now(),
+                };
+                this.FT.push({
+                  x: this.me.x,
+                  y: this.me.y - 26,
+                  s: `${this.netPlayers[m.id].name.toUpperCase()} ENTROU NA SALA!`,
+                  c: '#00e5ff',
+                  l: 1.8,
+                  b: 1,
+                });
+                this.snd(480, 0.25, 'triangle', 0.08, 320);
+                this.unlockAch('coop');
+              }
+            }
+            for (const pid of Object.keys(this.netPlayers)) {
+              if (!activeIds.has(pid)) delete this.netPlayers[pid];
+            }
+            window.dispatchEvent(new CustomEvent('sapo-net-update'));
+            return;
+          }
+          if (msg.t === 'peer_left' && msg.from) {
+            const leftP = this.netPlayers[msg.from];
+            if (leftP) {
+              this.FT.push({
+                x: this.me.x,
+                y: this.me.y - 24,
+                s: `${leftP.name.toUpperCase()} SAIU DA SALA`,
+                c: '#ffe082',
+                l: 1.4,
+              });
+              delete this.netPlayers[msg.from];
+              window.dispatchEvent(new CustomEvent('sapo-net-update'));
+            }
+            return;
+          }
+          this.handleNetMsg(msg.t, msg.d, msg.from);
+        } catch (_e) {}
+      };
+
+      socket.onclose = () => {
+        if (this.ws === socket) {
+          this.netConnected = false;
+          window.dispatchEvent(new CustomEvent('sapo-net-update'));
+        }
+      };
+    } catch (_e) {}
+
+    // Also announce on BroadcastChannel for instant local multi-tab testing
+    this.emitNet('hello', this.buildMyNetState());
+    window.dispatchEvent(new CustomEvent('sapo-net-update'));
   }
 
-  toggleBotPartner() {
-    this.botPartner.active = !this.botPartner.active;
-    if (this.botPartner.active) {
-      this.botPartner.ch = (this.me.ch + 1) % CH.length;
-      this.botPartner.w = CH[this.botPartner.ch].wp;
-      this.botPartner.x = this.me.x + 24;
-      this.botPartner.y = this.me.y;
-      this.botPartner.hp = 6;
-      this.botPartner.mh = 6;
-      this.botPartner.dead = false;
-      this.botPartner.revP = 0;
-      this.pt(this.botPartner.x, this.botPartner.y, '#00e5ff', 24, 110, 0.5, 3);
-      this.FT.push({
-        x: this.botPartner.x,
-        y: this.botPartner.y - 24,
-        s: `PARCEIRO CO-OP: ${CH[this.botPartner.ch].n.toUpperCase()} ENTROU!`,
-        c: '#00e5ff',
-        l: 1.5,
-        b: 1,
-      });
-      this.unlockAch('coop');
-      this.snd(480, 0.25, 'triangle', 0.08, 320);
-    } else {
-      this.FT.push({
-        x: this.me.x,
-        y: this.me.y - 24,
-        s: 'PARCEIRO CO-OP DESATIVADO',
-        c: '#ffe082',
-        l: 1.2,
-      });
+  leaveMultiplayerRoom() {
+    if (this.ws) {
+      try {
+        if (this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ t: 'leave', room: this.netRoom, id: this.me.id }));
+        }
+        this.ws.close();
+      } catch (_e) {}
+      this.ws = null;
+    }
+    this.emitNet('peer_left', { id: this.me.id });
+    this.netRoom = '';
+    this.netConnected = false;
+    this.netPlayers = {};
+    this.FT.push({
+      x: this.me.x,
+      y: this.me.y - 24,
+      s: 'DESCONECTADO DA SALA ONLINE',
+      c: '#ffe082',
+      l: 1.3,
+    });
+    window.dispatchEvent(new CustomEvent('sapo-net-update'));
+  }
+
+  buildMyNetState() {
+    const tip =
+      this.me.w === 3 && this.tongueChain.length > 0
+        ? this.tongueChain[this.tongueChain.length - 1]
+        : null;
+    return {
+      id: this.me.id,
+      name: this.playerName,
+      ch: this.me.ch,
+      w: this.me.w,
+      x: Math.round(this.me.x),
+      y: Math.round(this.me.y),
+      z: Math.round(this.me.z),
+      ang: +this.me.ang.toFixed(2),
+      hp: this.me.hp,
+      mh: this.me.mh,
+      dead: this.me.dead,
+      puff: +this.me.puff.toFixed(2),
+      wf: this.me.wf,
+      its: this.me.its,
+      gx: this.wd?.gx ?? 2,
+      gy: this.wd?.gy ?? 2,
+      bIdx: this.wd?.bIdx ?? 0,
+      fSeed: this.wd?.fSeed ?? 1,
+      ST: this.ST,
+      tongueTipX: tip ? Math.round(tip.x) : undefined,
+      tongueTipY: tip ? Math.round(tip.y) : undefined,
+    };
+  }
+
+  broadcastMultiplayerState() {
+    if (!this.netRoom) return;
+    const st = this.buildMyNetState();
+    this.emitNet('state', st);
+  }
+
+  emitNet(t: string, d: any) {
+    if (!this.netRoom) return;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ t, d, room: this.netRoom, from: this.me.id }));
+      } catch (_e) {}
+    }
+    if (this.bc) {
+      try {
+        this.bc.postMessage({ t, d, room: this.netRoom, from: this.me.id });
+      } catch (_e) {}
     }
   }
 
@@ -1197,7 +1489,7 @@ export class GameEngine {
       clone: 0,
       ankh: 0,
       kills: 0,
-      gold: this.me ? this.me.gold : u.gold * 4,
+      gold: this.me ? this.me.gold : u.gold * 3,
       keys: this.me ? this.me.keys : 1 + (this.achData.synergy ? 1 : 0),
       revP: 0,
       its: [],
@@ -1210,19 +1502,28 @@ export class GameEngine {
       wf: 0,
       ch: this.ch,
     };
+
+    this.tongueHitTimers = {};
+    this.tongueReach = 18;
+    if (this.me.w === 3) {
+      const mouth = getFrogMouthOrigin(this.me.x, this.me.y, this.me.z, this.me.ang, 1, 0, 0);
+      this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, 18, 9);
+    } else {
+      this.tongueChain = [];
+    }
   }
 
   initCampFloraAndNodes() {
     this.FLORA = [
-      { x: 48, y: 78, t: 0 },
-      { x: 138, y: 82, t: 1 },
-      { x: 342, y: 78, t: 2 },
-      { x: 428, y: 88, t: 0 },
-      { x: 54, y: 202, t: 2 },
-      { x: 146, y: 266, t: 1 },
-      { x: 336, y: 258, t: 0 },
-      { x: 422, y: 234, t: 1 },
-      { x: 372, y: 178, t: 2 },
+      { x: 48, y: 78, t: 0, phase: 0.2 },
+      { x: 138, y: 82, t: 1, phase: 1.4 },
+      { x: 342, y: 78, t: 2, phase: 2.7 },
+      { x: 428, y: 88, t: 0, phase: 3.8 },
+      { x: 54, y: 202, t: 2, phase: 4.5 },
+      { x: 146, y: 266, t: 1, phase: 5.1 },
+      { x: 336, y: 258, t: 0, phase: 1.9 },
+      { x: 422, y: 234, t: 1, phase: 3.1 },
+      { x: 372, y: 178, t: 2, phase: 0.8 },
     ];
     this.campNodes = [
       { x: 392, y: 68, hp: 10, mh: 10, respawnT: 0, j: 0, v: 0, fl: 0, col: '#00e5ff' },
@@ -1230,10 +1531,36 @@ export class GameEngine {
       { x: 378, y: 266, hp: 10, mh: 10, respawnT: 0, j: 0, v: 0, fl: 0, col: '#ffd54f' },
       { x: 76, y: 72, hp: 10, mh: 10, respawnT: 0, j: 0, v: 0, fl: 0, col: '#e040fb' },
     ];
+    this.initSwampBubbles();
+  }
+
+  initSwampBubbles() {
+    this.swampBubbles = [];
+    for (let i = 0; i < 9; i++) {
+      this.swampBubbles.push(this.createSwampBubble(Math.random() * 2.5));
+    }
+  }
+
+  createSwampBubble(initialProgress = 0): SwampBubble {
+    const inCamp = this.ST === 'camp';
+    const x = inCamp ? 36 + Math.random() * (W - 72) : M + 20 + Math.random() * (W - M * 2 - 40);
+    const y = inCamp ? 50 + Math.random() * (H - 85) : M + 20 + Math.random() * (H - M * 2 - 40);
+    const maxR = 2.4 + Math.random() * 2.6;
+    const cols = ['#76ff03', '#00e676', '#69f0ae', '#00e5ff'];
+    return {
+      x,
+      y,
+      r: initialProgress * maxR * 0.4,
+      maxR,
+      spd: 0.75 + Math.random() * 0.65,
+      pop: 0,
+      col: cols[(Math.random() * cols.length) | 0],
+    };
   }
 
   reset(toCamp = true) {
     const oldId = this.me ? this.me.id : null;
+    this.pacts = [];
     this.initPlayer(this.ch);
     if (oldId) this.me.id = oldId;
 
@@ -1275,6 +1602,7 @@ export class GameEngine {
       this.ST = 'camp';
       this.me.x = 240;
       this.me.y = 235;
+      this.weather.type = 'none'; // Cozy shelter under swamp canopy; clear pleasant atmosphere
       this.initCampFloraAndNodes();
       document.body.dataset.state = 'camp';
     } else {
@@ -1283,12 +1611,11 @@ export class GameEngine {
       this.lastKey = this.rmKey();
       document.body.dataset.state = 'playing';
     }
-    if (this.botPartner.active) {
-      this.botPartner.x = this.me.x + 24;
-      this.botPartner.y = this.me.y;
-      this.botPartner.dead = false;
-      this.botPartner.hp = this.botPartner.mh;
+    if (this.me.w === 3) {
+      const mouth = getFrogMouthOrigin(this.me.x, this.me.y, this.me.z, this.me.ang, 1, 0, 0);
+      this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, 84, 9);
     }
+    this.broadcastMultiplayerState();
     if (this.onStateChange) this.onStateChange(this.ST);
   }
 
@@ -1298,7 +1625,7 @@ export class GameEngine {
     this.wd.gx = 2;
     this.wd.gy = 2;
     const luckLvl = this.achStats.upg?.luck || 0;
-    const luckBonus = luckLvl * 0.08 + (this.achData.synergy ? 0.05 : 0);
+    const luckBonus = luckLvl * 0.06 + (this.achData.synergy ? 0.04 : 0);
     this.wd.grid = generateDungeonGrid(this.wd.bIdx, this.wd.fSeed, this.ch, luckBonus);
     this.wd.en = [];
     this.wd.eb = [];
@@ -1318,9 +1645,19 @@ export class GameEngine {
     const a = ACH_LIST.find((x) => x.id === id);
     if (!a) return;
     this.achData[id] = Date.now();
-    const reward = id === 'win' || id === 'all_chars' ? 2 : 1;
-    this.achStats.larvae += reward;
-    const toastItem = { lbl: `CONQUISTA (+${reward} LARVA${reward > 1 ? 'S' : ''})!`, nm: a.nm, ds: a.ds, ic: a.ic };
+    // Slower progression: only major Boss / Endgame milestones grant permanent Crystallized Larvae
+    const isMajorMilestone = id === 'b1' || id === 'b2' || id === 'b3' || id === 'b4' || id === 'win' || id === 'all_chars';
+    const rewardLarvae = id === 'win' ? 2 : isMajorMilestone ? 1 : 0;
+    if (rewardLarvae > 0) {
+      this.achStats.larvae += rewardLarvae;
+    } else if (this.me) {
+      this.me.gold += 6;
+    }
+    const lblText =
+      rewardLarvae > 0
+        ? `CONQUISTA (+${rewardLarvae} LARVA${rewardLarvae > 1 ? 'S' : ''})!`
+        : 'CONQUISTA DESBLOQUEADA (+6 MOSCAS)!';
+    const toastItem = { lbl: lblText, nm: a.nm, ds: a.ds, ic: a.ic };
     this.toastQueue.push(toastItem);
     this.processToast();
 
@@ -1328,8 +1665,8 @@ export class GameEngine {
       const allA = ACH_LIST.find((x) => x.id === 'all_chars');
       if (allA && !this.achData['all_chars']) {
         this.achData['all_chars'] = Date.now();
-        this.achStats.larvae += 2;
-        this.toastQueue.push({ lbl: 'CONQUISTA (+2 LARVAS)!', nm: allA.nm, ds: allA.ds, ic: allA.ic });
+        this.achStats.larvae += 1;
+        this.toastQueue.push({ lbl: 'CONQUISTA (+1 LARVA)!', nm: allA.nm, ds: allA.ds, ic: allA.ic });
         this.processToast();
       }
     }
@@ -1485,9 +1822,141 @@ export class GameEngine {
     }
 
     const wantFire = this.mouse.down || sl > 0.15 || !!(b.shoot && this.keys[b.shoot]);
+
+    // Update Dart's Always-Out Castlevania Whip Tongue!
+    if (this.me.w === 3) {
+      this.updateAlwaysOutTongueWhip(dt, wantFire);
+    }
+
     this.me.cd -= dt;
     if (wantFire && this.me.cd <= 0 && this.me.z <= 8) {
       this.fire();
+    }
+  }
+
+  updateAlwaysOutTongueWhip(dt: number, wantFire: boolean) {
+    if (this.me.dead) {
+      this.tongueChain = [];
+      return;
+    }
+    const sc = (1 + (this.me.big - 1) * 0.25) * (this.me.its.length >= 4 ? 1.08 : 1);
+    const mouth = getFrogMouthOrigin(
+      this.me.x,
+      this.me.y,
+      this.me.z,
+      this.me.ang,
+      sc,
+      this.me.wf,
+      this.me.j
+    );
+    const numSegs = 9;
+    const reach = (wantFire ? 138 : 84) * Math.min(1.4, 1 + (this.me.big - 1) * 0.35);
+    if (this.tongueChain.length === 0) {
+      this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, reach, numSegs);
+    } else {
+      updateCastlevaniaWhipChain(this.tongueChain, mouth.x, mouth.y, this.me.ang, reach, dt, wantFire);
+    }
+
+    if (wantFire) {
+      this.me.puff = Math.max(this.me.puff, 0.08);
+    }
+
+    for (const k of Object.keys(this.tongueHitTimers)) {
+      this.tongueHitTimers[k] -= dt;
+      if (this.tongueHitTimers[k] <= 0) delete this.tongueHitTimers[k];
+    }
+
+    const tip = this.tongueChain[this.tongueChain.length - 1];
+    if (!tip) return;
+
+    // Gentle fly magnet on the sticky tongue tip
+    for (const f of this.FLIES) {
+      if (Math.hypot(f.x - tip.x, f.y - tip.y) < 26) {
+        f.x += (this.me.x - f.x) * dt * 10;
+        f.y += (this.me.y - f.y) * dt * 10;
+      }
+    }
+
+    // Check collisions along segments 2..6 of the whip
+    const whipDmg =
+      WP[3].dm *
+      this.me.dm *
+      (this.me.big > 1 ? 1.2 : 1) *
+      (this.me.elec ? 1.3 : 1) *
+      (this.me.syn['hydra'] ? 1.25 : 1);
+    // Slow, balanced hit interval per target (~0.46s base) so sweeping the tongue is strategic and never overpowered
+    const hitCooldown = Math.max(0.32, 0.48 * (this.me.rt / 0.48));
+
+    if (this.ST === 'camp') {
+      const dm = this.camp.dummy;
+      if (!this.tongueHitTimers['dummy']) {
+        for (let i = 2; i < this.tongueChain.length; i++) {
+          const seg = this.tongueChain[i];
+          if (Math.hypot(seg.x - dm.x, seg.y - dm.y) < 16) {
+            this.tongueHitTimers['dummy'] = hitCooldown;
+            this.hitDummy(whipDmg);
+            break;
+          }
+        }
+      }
+      for (let cIdx = 0; cIdx < this.campNodes.length; cIdx++) {
+        const cn = this.campNodes[cIdx];
+        const key = `cn_${cIdx}`;
+        if (cn.hp > 0 && !this.tongueHitTimers[key]) {
+          for (let i = 2; i < this.tongueChain.length; i++) {
+            const seg = this.tongueChain[i];
+            if (Math.hypot(seg.x - cn.x, seg.y - cn.y) < 15) {
+              this.tongueHitTimers[key] = hitCooldown;
+              cn.hp -= whipDmg;
+              cn.fl = 0.12;
+              cn.j = -0.25;
+              cn.v += 6;
+              this.emitWallImpact(seg.x, seg.y, seg.vx, seg.vy, cn.col, true);
+              if (cn.hp <= 0) {
+                cn.respawnT = 4.5;
+                this.pt(cn.x, cn.y, cn.col, 18, 100, 0.5, 2.8, 240, 1, 'star', 0.8);
+                this.snd(520, 0.15, 'triangle', 0.06, 220);
+              }
+              break;
+            }
+          }
+        }
+      }
+      return;
+    }
+
+    // Break props touched by the whip
+    for (const pr of this.PROPS) {
+      if (!pr.dead) {
+        for (let i = 2; i < this.tongueChain.length; i++) {
+          const seg = this.tongueChain[i];
+          if (Math.hypot(pr.x - seg.x, pr.y - seg.y) < 13) {
+            this.breakProp(pr);
+            break;
+          }
+        }
+      }
+    }
+
+    // Hit enemies with low knockback (3.0 instead of 18) and slow per-enemy cooldown
+    for (const e of [...this.wd.en]) {
+      const timerKey = `en_${e.id}`;
+      if (this.tongueHitTimers[timerKey]) continue;
+      const eRad = (RAD_STATS[e.t] || 12) * (e.chmp ? 1.2 : 1) + 5;
+      for (let i = 2; i < this.tongueChain.length; i++) {
+        const seg = this.tongueChain[i];
+        if (Math.hypot(e.x - seg.x, e.y - seg.y) < eRad) {
+          this.tongueHitTimers[timerKey] = hitCooldown;
+          const kbDir = Math.atan2(e.y - this.me.y, e.x - this.me.x);
+          const gentleKb = 3.0 * (this.me.hyper ? 1.2 : 1);
+          this.hitEnemy(e, whipDmg, Math.cos(kbDir) * gentleKb, Math.sin(kbDir) * gentleKb, this.me.id);
+          this.pt(seg.x, seg.y, '#ff80ab', 4, 45, 0.18, 2.0, 160, 1, 'droplet', 0.35);
+          if (this.me.tox) {
+            this.POOLS.push({ x: seg.x, y: seg.y, r: 15, l: 2.2, tk: 0, c: '#76ff03' });
+          }
+          break;
+        }
+      }
     }
   }
 
@@ -1497,24 +1966,54 @@ export class GameEngine {
     const dx = this.me.ax / q;
     const dy = this.me.ay / q;
     const baseA = Math.atan2(dy, dx);
+
+    const sc = (1 + (this.me.big - 1) * 0.25) * (this.me.its.length >= 4 ? 1.08 : 1);
+    const mouth = getFrogMouthOrigin(
+      this.me.x,
+      this.me.y,
+      this.me.z,
+      baseA,
+      sc,
+      this.me.wf,
+      this.me.j
+    );
+    const mouthX = mouth.x;
+    const mouthY = mouth.y;
+
+    // For Dart (Língua Chicote, w === 3), the tongue is ALWAYS out and controlled like Alucard's whip;
+    // holding fire only triggers familiars/clones on cooldown and a subtle whip lash impulse!
+    if (this.me.w === 3) {
+      this.me.cd = this.me.rt * w.rt;
+      this.me.puff = 0.16;
+      if (this.tongueChain.length > 0) {
+        const tip = this.tongueChain[this.tongueChain.length - 1];
+        tip.vx += dx * 95;
+        tip.vy += dy * 95;
+      }
+      if (this.me.fam) {
+        for (let f = 0; f < this.me.fam; f++) {
+          const fa = this.TT * 3.5 + f * 3.14;
+          const fx = this.me.x + Math.cos(fa) * 24;
+          const fy = this.me.y + Math.sin(fa) * 18;
+          this.spawnBullet(fx, fy, baseA, WP[0], 0.55);
+        }
+      }
+      return;
+    }
+
     let n = (w.n || 1) + (this.me.tri ? 2 : 0);
     if (this.me.syn['shoal'] && this.me.w === 1) n += 2;
-    if (this.me.syn['hydra'] && this.me.w === 3) n = Math.max(n, 3);
     this.me.puff = 0.24;
 
     const dirs = [baseA];
     if (this.me.rear) dirs.push(baseA + Math.PI);
 
-    // Spawn organic abilities directly from the frog's open mouth!
-    const mouthX = this.me.x + dx * 6;
-    const mouthY = this.me.y - 7 - this.me.z + dy * 4;
-
     const shootFrom = (ox: number, oy: number, mult: number) => {
       for (const dA of dirs) {
         for (let i = 0; i < n; i++) {
           const a = dA + (n > 1 ? (i - (n - 1) / 2) * 0.22 : 0) + (w.jit ? (Math.random() - 0.5) * w.jit : 0);
-          if (w.beam) this.fireBeam(ox + Math.cos(a) * 6, oy + Math.sin(a) * 6, a, w);
-          else this.spawnBullet(ox + Math.cos(a) * 5, oy + Math.sin(a) * 5, a, w, mult);
+          if (w.beam) this.fireBeam(ox + Math.cos(a) * 2, oy + Math.sin(a) * 2, a, w);
+          else this.spawnBullet(ox + Math.cos(a) * 2, oy + Math.sin(a) * 2, a, w, mult);
         }
       }
     };
@@ -1537,14 +2036,14 @@ export class GameEngine {
     this.me.cd = this.me.rt * w.rt;
     this.me.v += this.me.w >= 4 ? -9.5 : -5.5;
     this.snd(
-      this.me.w === 5 ? 140 : this.me.w === 4 ? 115 : this.me.w === 3 ? 620 : 390,
+      this.me.w === 5 ? 140 : this.me.w === 4 ? 115 : 390,
       0.09,
       this.me.w >= 4 ? 'sawtooth' : 'square',
       0.04,
       -130
     );
-    // Organic saliva / slime spray droplets from the frog's mouth on spit
-    this.pt(mouthX + dx * 4, mouthY + dy * 4, w.col, 4, 58, 0.2, 2.2, 180, 1, 'droplet', 0.4);
+    // Organic saliva / slime spray droplets directly at the exact frog mouth position
+    this.pt(mouthX + dx * 2, mouthY + dy * 2, w.col, 4, 58, 0.2, 2.2, 180, 1, 'droplet', 0.4);
     if (this.me.w >= 4 && this.me.z <= 2) {
       this.me.x -= dx * 2.8;
       this.me.y -= dy * 2.8;
@@ -1591,13 +2090,26 @@ export class GameEngine {
       ka: a,
     };
     this.myB.push(bObj);
+    if (this.netRoom && !extra.noNet) {
+      this.emitNet('sh', {
+        x: Math.round(x),
+        y: Math.round(y),
+        vx: Math.round(vx),
+        vy: Math.round(vy),
+        r: +r.toFixed(1),
+        w: this.me.w,
+        l: bObj.l,
+        col: bObj.col,
+        oid: this.me.id,
+      });
+    }
   }
 
   triggerAoE(b: Bullet) {
     if (b.foam) {
       for (let k = 0; k < 3; k++) {
         const a = Math.random() * 6.283;
-        this.spawnBullet(b.x, b.y, a, WP[2], 0.45, { r: 2.5, l: 0.35, bnc: 1, noSplit: 1 });
+        this.spawnBullet(b.x, b.y, a, WP[2], 0.45, { r: 2.5, l: 0.35, bnc: 1, noSplit: 1, noNet: 1 });
       }
     }
     if (b.pool) {
@@ -1648,7 +2160,7 @@ export class GameEngine {
         const vy = e.y - y;
         const proj = vx * dx + vy * dy;
         if (proj > 0 && proj < 460 && Math.abs(vx * dy - vy * dx) < (RAD_STATS[e.t] || 12) + 8 * this.me.big) {
-          this.hitEnemy(e, dmg, dx * 9, dy * 9, this.me.id);
+          this.hitEnemy(e, dmg, dx * 6, dy * 6, this.me.id);
         }
       }
     }
@@ -1786,8 +2298,8 @@ export class GameEngine {
     const col = pr.t === 'pot' ? '#ffab91' : '#8d6e63';
     this.pt(pr.x, pr.y, col, 16, 95, 0.45, 2.8, 180);
     this.snd(180 + Math.random() * 70, 0.08, 'square', 0.04, -60);
-    if (Math.random() < 0.10) this.spawnGoldFlies(pr.x, pr.y, 1);
-    else if (Math.random() < 0.02) this.DROPS.push({ id: rnd(), x: pr.x, y: pr.y, t: 'hp', j: 0, v: 8 });
+    if (Math.random() < 0.08) this.spawnGoldFlies(pr.x, pr.y, 1);
+    else if (Math.random() < 0.015) this.DROPS.push({ id: rnd(), x: pr.x, y: pr.y, t: 'hp', j: 0, v: 8 });
   }
 
   breakNearbyProps(x: number, y: number, rad: number) {
@@ -1825,6 +2337,29 @@ export class GameEngine {
         vy: Math.sin(a) * sp,
         vz: 85 + Math.random() * 45,
       });
+    }
+  }
+
+  spawnCombatWaveEnemies(count: number) {
+    const pl = [
+      ['f', 'g', 's', 'spd'],
+      ['g', 's', 'c', 'm', 'bmb'],
+      ['s', 'c', 'm', 'plt', 'snk'],
+      ['c', 'm', 'bmb', 'plt', 'gho', 'snk'],
+      ['bmb', 'plt', 'snk', 'gho', 'spd', 'c'],
+    ][this.wd.bIdx] || ['f', 'g'];
+
+    const chmpChance = Math.min(0.35, 0.1 + this.wd.bIdx * 0.06);
+    for (let i = 0; i < count; i++) {
+      let x = 240;
+      let y = 120;
+      let k = 0;
+      do {
+        x = 64 + Math.random() * 352;
+        y = 54 + Math.random() * 144;
+      } while ((this.inRock(x, y) || Math.hypot(x - this.me.x, y - this.me.y) < 58) && k++ < 18);
+      const isChmp = Math.random() < chmpChance ? 1 : 0;
+      this.wd.en.push(this.createEnemy(pl[(Math.random() * pl.length) | 0], x, y, isChmp));
     }
   }
 
@@ -1869,25 +2404,27 @@ export class GameEngine {
       this.me.y = 220;
     }
 
-    if (this.botPartner.active && !this.botPartner.dead) {
-      this.botPartner.x = clamp(this.me.x + 20, M + 18, W - M - 18);
-      this.botPartner.y = clamp(this.me.y, M + 18, H - M - 18);
+    if (this.me.w === 3) {
+      const mouth = getFrogMouthOrigin(this.me.x, this.me.y, this.me.z, this.me.ang, 1, 0, 0);
+      this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, 7, 6.2);
     }
 
     const hz = this.hazards();
     this.TABLES = hz.tables.map((t: any) => ({ ...t }));
     this.PROPS = hz.props.map((p: any) => ({ ...p }));
 
-    // Generate room flora tufts
+    // Generate room flora tufts with individual animation phases
     this.FLORA = [];
     const r = createPseudoRandom((gx * 53 + gy * 113 + this.wd.fSeed) | 0);
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 9; i++) {
       const fx = M + 24 + r() * (W - M * 2 - 48);
       const fy = M + 24 + r() * (H - M * 2 - 48);
       if (!this.inRock(fx, fy)) {
-        this.FLORA.push({ x: fx, y: fy, t: Math.floor(r() * 3) });
+        this.FLORA.push({ x: fx, y: fy, t: Math.floor(r() * 3), phase: r() * 6.28 });
       }
     }
+    this.initSwampBubbles();
+    this.setupCellWeather(cell);
 
     if (this.me.shi) this.me.sh = 1;
     this.me.inv = 1.1;
@@ -1904,36 +2441,22 @@ export class GameEngine {
         this.wd.en.push(this.createEnemy('B' + this.wd.bIdx, 240, 104, 0));
       } else if (cell.type === 'combat') {
         this.wd.clear = false;
+        cell.wave = 1;
         const n = 3 + this.wd.bIdx;
-        const pl = [
-          ['f', 'g', 's', 'spd'],
-          ['g', 's', 'c', 'm', 'bmb'],
-          ['s', 'c', 'm', 'plt', 'snk'],
-          ['c', 'm', 'bmb', 'plt', 'gho', 'snk'],
-          ['bmb', 'plt', 'snk', 'gho', 'spd', 'c'],
-        ][this.wd.bIdx] || ['f', 'g'];
-
-        const chmpChance = Math.min(0.42, 0.12 + this.wd.bIdx * 0.07);
-        for (let i = 0; i < n; i++) {
-          let x, y, k = 0;
-          do {
-            x = 64 + Math.random() * 352;
-            y = 54 + Math.random() * 124;
-          } while (this.inRock(x, y) && k++ < 15);
-          const isChmp = Math.random() < chmpChance ? 1 : 0;
-          this.wd.en.push(this.createEnemy(pl[(Math.random() * pl.length) | 0], x, y, isChmp));
-        }
+        this.spawnCombatWaveEnemies(n);
       }
     } else {
       this.wd.clear = true;
       if (cell.type === 'boss') this.wd.trapdoor = true;
     }
+
+    this.broadcastMultiplayerState();
   }
 
   createEnemy(t: string, x: number, y: number, chmp = 0): Enemy {
     const bo = t.startsWith('B');
-    const scaleHp = 1 + this.wd.bIdx * 0.22;
-    const baseHp = Math.round((HP_STATS[t] || 12) * (bo ? 1 : scaleHp) * (chmp ? 1.5 : 1));
+    const scaleHp = 1 + this.wd.bIdx * 0.25;
+    const baseHp = Math.round((HP_STATS[t] || 12) * (bo ? 1.15 : scaleHp) * (chmp ? 1.5 : 1));
     this.pt(x, y, CL_STATS[t] || '#69f0ae', 12, 70, 0.35, 2.5);
     return {
       id: rnd(),
@@ -1961,11 +2484,11 @@ export class GameEngine {
   }
 
   hitEnemy(e: Enemy, dmg: number, kx = 0, ky = 0, byId = '') {
-    // Co-op Chemical Combo Check (when 2 different frogs hit the same target)
+    // Co-op Chemical Combo Check (when 2 different real online frogs hit the same target)
     if (byId && e.chemT > 0 && e.chemBy && e.chemBy !== byId) {
       e.chemT = 0;
       e.chemBy = '';
-      dmg *= 1.75;
+      dmg *= 1.65;
       this.pt(e.x, e.y, '#00e5ff', 24, 130, 0.6, 3);
       this.FT.push({ x: e.x, y: e.y - 24, s: 'COMBO QUÍMICO CO-OP!', c: '#00e5ff', l: 1.3, b: 1 });
       this.snd(620, 0.22, 'triangle', 0.08, 360);
@@ -2006,7 +2529,7 @@ export class GameEngine {
       b: isCrit ? 1 : 0,
     });
     this.snd(190 + Math.random() * 60, 0.07, 'square', 0.04, -80);
-    this.addShake(this.me.w >= 4 ? 6.5 : 1.8);
+    this.addShake(this.me.w >= 4 ? 5.5 : 1.5);
     if (this.me.w >= 4 || isCrit) this.addHitStop(0.035);
 
     this.checkEnemyDeaths();
@@ -2033,7 +2556,8 @@ export class GameEngine {
   }
 
   shootEnemyBullet(e: Enemy, dx: number, dy: number, v: number) {
-    const spd = v * 1.15;
+    const pactSpd = this.pacts.includes('overload') ? 1.15 : 1.0;
+    const spd = v * 1.15 * pactSpd;
     this.wd.eb.push({ id: rnd(), x: e.x, y: e.y, vx: dx * spd, vy: dy * spd });
   }
 
@@ -2066,21 +2590,22 @@ export class GameEngine {
     });
     if (this.DC.length > 45) this.DC.shift();
 
+    // Slower gold & larva economy
     const flyCnt = bo
-      ? 5 + ((Math.random() * 4) | 0)
+      ? 4 + ((Math.random() * 3) | 0)
       : e.chmp
-      ? 1 + ((Math.random() * 2) | 0)
-      : Math.random() < 0.42
+      ? 1
+      : Math.random() < 0.28
       ? 1
       : 0;
     if (flyCnt > 0) this.spawnGoldFlies(e.x, e.y, flyCnt);
 
-    // Crystallized Larvae are rare & precious!
-    if (e.chmp && Math.random() < 0.07) this.spawnLarvaDrop(e.x, e.y, 1);
+    // Crystallized Larvae are genuinely rare & precious (only 2% from elite champions)
+    if (e.chmp && Math.random() < 0.02) this.spawnLarvaDrop(e.x, e.y, 1);
 
     if (e.chmp || bo) {
-      if (Math.random() < (bo ? 0.5 : 0.08)) this.DROPS.push({ id: rnd(), x: e.x - 8, y: e.y, t: 'hp', j: 0, v: 8 });
-      if (Math.random() < (bo ? 0.85 : 0.16)) this.DROPS.push({ id: rnd(), x: e.x + 8, y: e.y, t: 'key', j: 0, v: 8 });
+      if (Math.random() < (bo ? 0.45 : 0.06)) this.DROPS.push({ id: rnd(), x: e.x - 8, y: e.y, t: 'hp', j: 0, v: 8 });
+      if (Math.random() < (bo ? 0.75 : 0.12)) this.DROPS.push({ id: rnd(), x: e.x + 8, y: e.y, t: 'key', j: 0, v: 8 });
     }
 
     this.achStats.kills++;
@@ -2224,6 +2749,9 @@ export class GameEngine {
     if (this.ST === 'play') {
       const cell = this.curCell();
       if (!cell) return null;
+      if (cell.shrine && !cell.shrine.used && this.wd.clear) {
+        if (Math.hypot(this.me.x - cell.shrine.x, this.me.y - cell.shrine.y) < 32) return 'ALTAR';
+      }
       if (cell.type === 'combat' && cell.totem && cell.totem.state === 0 && this.wd.clear) {
         if (Math.hypot(this.me.x - cell.totem.x, this.me.y - cell.totem.y) < 32) return 'TOTEM';
       }
@@ -2239,6 +2767,50 @@ export class GameEngine {
       }
     }
     return null;
+  }
+
+  activateSwampShrine(pactId: string, sx: number, sy: number) {
+    const pact = PACT_LIST.find((p) => p.id === pactId) || PACT_LIST[0];
+    this.pacts.push(pact.id);
+    this.pt(sx, sy, pact.col, 34, 130, 0.75, 3.2);
+    this.snd(310, 0.35, 'sawtooth', 0.08, 240);
+    this.addShake(6);
+
+    if (pact.id === 'blood') {
+      this.me.mh = Math.max(1, this.me.mh - 1);
+      this.me.hp = Math.min(this.me.mh, this.me.hp);
+      this.me.dm = +(this.me.dm * 1.35).toFixed(2);
+      this.gotMutation((Math.random() * IT.length) | 0);
+    } else if (pact.id === 'glass') {
+      this.me.mh = Math.min(this.me.mh, 2);
+      this.me.hp = Math.min(this.me.mh, this.me.hp);
+      this.me.dm = +(this.me.dm * 1.65).toFixed(2);
+      this.me.rt = Math.max(0.08, +(this.me.rt * 0.75).toFixed(3));
+    } else if (pact.id === 'greed') {
+      this.me.gold = Math.floor(this.me.gold * 0.5);
+      this.spawnLarvaDrop(sx, sy + 14, 1);
+      this.gotMutation((Math.random() * IT.length) | 0);
+    } else if (pact.id === 'overload') {
+      this.me.elec = 1;
+      this.me.exp = 1;
+      this.me.sp += 15;
+    }
+
+    this.toastQueue.push({
+      lbl: 'PACTO DO ALTAR ACEITO!',
+      nm: pact.nm,
+      ds: pact.ds,
+      ic: pact.ic,
+    });
+    this.processToast();
+    this.FT.push({
+      x: sx,
+      y: sy - 26,
+      s: `${pact.nm.toUpperCase()} ATIVADO!`,
+      c: pact.col,
+      l: 1.9,
+      b: 1,
+    });
   }
 
   interactE() {
@@ -2270,6 +2842,10 @@ export class GameEngine {
           this.initPlayer(lg.c);
           this.me.x = ox;
           this.me.y = oy;
+          if (this.me.w === 3) {
+            const mouth = getFrogMouthOrigin(this.me.x, this.me.y, this.me.z, this.me.ang, 1, 0, 0);
+            this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, 84, 9);
+          }
           this.pt(this.me.x, this.me.y, CH[this.me.ch].c, 22, 110, 0.55, 2.8);
           this.FT.push({
             x: this.me.x,
@@ -2280,6 +2856,7 @@ export class GameEngine {
             b: 1,
           });
           this.snd(480, 0.22, 'triangle', 0.08, 320);
+          this.broadcastMultiplayerState();
           return;
         }
       }
@@ -2306,6 +2883,15 @@ export class GameEngine {
     if (this.ST !== 'play') return;
     const cell = this.curCell();
     if (!cell) return;
+
+    // 4. Swamp Shrine Activation (Altar de Pacto Místico)
+    if (cell.shrine && !cell.shrine.used && this.wd.clear) {
+      if (Math.hypot(this.me.x - cell.shrine.x, this.me.y - cell.shrine.y) < 32) {
+        cell.shrine.used = true;
+        this.activateSwampShrine(cell.shrine.pactId, cell.shrine.x, cell.shrine.y);
+        return;
+      }
+    }
 
     // 5. Challenge Totem Activation (Risk / Reward Elite Wave)
     if (cell.type === 'combat' && cell.totem && cell.totem.state === 0 && this.wd.clear) {
@@ -2357,7 +2943,7 @@ export class GameEngine {
       cell.shop.forEach((ped, idx) => {
         if (!ped.sold && Math.hypot(this.me.x - ped.x, this.me.y - ped.y) < 25) {
           const isSoloAnkh = idx === 2 && this.me.ankh === 0;
-          const price = Math.max(1, Math.round(isSoloAnkh ? 30 : ped.cost));
+          const price = Math.max(1, Math.round(isSoloAnkh ? 38 : ped.cost));
           if (this.me.gold < price) {
             this.FT.push({
               x: ped.x,
@@ -2399,8 +2985,89 @@ export class GameEngine {
     }
   }
 
-  handleNetMsg(t: string, d: any) {
+  handleNetMsg(t: string, d: any, fromId?: string) {
+    const senderId = fromId || d?.id || d?.oid;
+    if (!senderId || senderId === this.me.id) return;
+
+    if ((t === 'state' || t === 'hello') && d) {
+      const isNew = !this.netPlayers[senderId];
+      const existing = this.netPlayers[senderId];
+      this.netPlayers[senderId] = {
+        id: senderId,
+        name: d.name || existing?.name || `Sapo-${senderId.slice(0, 3)}`,
+        ch: d.ch ?? existing?.ch ?? 0,
+        w: d.w ?? CH[d.ch || 0]?.wp ?? 0,
+        x: d.x ?? existing?.x ?? 240,
+        y: d.y ?? existing?.y ?? 220,
+        z: d.z ?? 0,
+        ang: d.ang ?? 0,
+        hp: d.hp ?? 6,
+        mh: d.mh ?? 6,
+        dead: !!d.dead,
+        revP: existing?.revP ?? 0,
+        puff: d.puff ?? 0,
+        wf: d.wf ?? 0,
+        its: Array.isArray(d.its) ? d.its : existing?.its || [],
+        gx: d.gx ?? 2,
+        gy: d.gy ?? 2,
+        bIdx: d.bIdx ?? 0,
+        ST: d.ST || 'camp',
+        lastSeen: now(),
+        tongueTipX: d.tongueTipX,
+        tongueTipY: d.tongueTipY,
+      };
+      if (isNew) {
+        this.FT.push({
+          x: this.me.x,
+          y: this.me.y - 26,
+          s: `${this.netPlayers[senderId].name.toUpperCase()} CONECTOU!`,
+          c: '#00e5ff',
+          l: 1.7,
+          b: 1,
+        });
+        this.snd(480, 0.25, 'triangle', 0.08, 320);
+        this.unlockAch('coop');
+        window.dispatchEvent(new CustomEvent('sapo-net-update'));
+      }
+      if (t === 'hello') {
+        this.broadcastMultiplayerState();
+      }
+      return;
+    }
+
+    if (t === 'peer_left') {
+      const leftId = d?.id || senderId;
+      if (this.netPlayers[leftId]) {
+        delete this.netPlayers[leftId];
+        window.dispatchEvent(new CustomEvent('sapo-net-update'));
+      }
+      return;
+    }
+
+    if (t === 'revived' && d?.targetId === this.me.id && this.me.dead) {
+      this.me.dead = false;
+      this.me.hp = Math.min(this.me.mh, 2);
+      this.me.inv = 2.0;
+      this.me.revP = 0;
+      document.body.dataset.state = 'playing';
+      this.pt(this.me.x, this.me.y, '#00e676', 36, 140, 0.8, 3.2);
+      this.FT.push({
+        x: this.me.x,
+        y: this.me.y - 28,
+        s: 'REANIMADO PELO ALIADO ONLINE!',
+        c: '#00e676',
+        l: 1.8,
+        b: 1,
+      });
+      this.snd(520, 0.35, 'triangle', 0.09, 480);
+      return;
+    }
+
     if (t === 'sh' && d && d.oid !== this.me.id) {
+      const rp = this.netPlayers[senderId];
+      if (rp && (rp.ST !== this.ST || (this.ST === 'play' && (rp.gx !== this.wd.gx || rp.gy !== this.wd.gy)))) {
+        return;
+      }
       this.rB.push({
         x: d.x,
         y: d.y,
@@ -2412,15 +3079,15 @@ export class GameEngine {
         w: d.w || 0,
         l: d.l || 0.95,
         tng: d.tng || 0,
-        oid: d.oid,
+        oid: d.oid || senderId,
         aoe: d.aoe || 0,
         pool: d.pool || 0,
         bnc: d.bnc || 0,
-        col: d.col,
-        d: 1.0,
+        col: d.col || '#00e5ff',
+        d: 1.2,
         p: 0,
         hit: [],
-        ka: 0,
+        ka: Math.atan2(d.vy || 0, d.vx || 1),
       });
     }
   }
@@ -2430,6 +3097,7 @@ export class GameEngine {
 
     this.TT += dt;
     this.springAll(dt);
+    this.updateSwampBubbles(dt);
 
     if (this.comboTimer > 0) {
       this.comboTimer -= dt;
@@ -2442,8 +3110,28 @@ export class GameEngine {
       this.updatePlay(dt);
     }
 
-    this.updateBotPartner(dt);
+    this.updateNetPlayers(dt);
     this.updateParticles(dt);
+  }
+
+  updateSwampBubbles(dt: number) {
+    if (!this.swampBubbles.length && (this.ST === 'camp' || this.ST === 'play')) {
+      this.initSwampBubbles();
+    }
+    for (let i = 0; i < this.swampBubbles.length; i++) {
+      const b = this.swampBubbles[i];
+      if (b.pop > 0) {
+        b.pop -= dt;
+        if (b.pop <= 0) {
+          this.swampBubbles[i] = this.createSwampBubble(0);
+        }
+      } else {
+        b.r += b.spd * dt;
+        if (b.r >= b.maxR) {
+          b.pop = 0.22;
+        }
+      }
+    }
   }
 
   springAll(dt: number) {
@@ -2471,90 +3159,49 @@ export class GameEngine {
     }
   }
 
-  updateBotPartner(dt: number) {
-    const bp = this.botPartner;
-    if (!bp.active) return;
-    spring(bp, dt);
-    bp.puff = Math.max(0, bp.puff - dt);
-
-    // Co-op Rescue Ring Logic (3.0s survival inside ring)
-    if (bp.dead && !this.me.dead) {
-      if (Math.hypot(this.me.x - bp.x, this.me.y - bp.y) < 34) {
-        bp.revP = clamp(bp.revP + dt / 3.0, 0, 1);
-        if (bp.revP >= 1) {
-          bp.dead = false;
-          bp.hp = 2;
-          bp.revP = 0;
-          this.pt(bp.x, bp.y, '#00e676', 32, 130, 0.7, 3);
-          this.FT.push({ x: bp.x, y: bp.y - 26, s: 'PARCEIRO REANIMADO!', c: '#00e676', l: 1.5, b: 1 });
-          this.snd(520, 0.35, 'triangle', 0.09, 450);
-        }
-      } else {
-        bp.revP = Math.max(0, bp.revP - dt * 0.5);
-      }
-      return;
+  updateNetPlayers(dt: number) {
+    if (!this.netRoom) return;
+    this.netSyncTimer -= dt;
+    if (this.netSyncTimer <= 0) {
+      this.netSyncTimer = 0.055;
+      this.broadcastMultiplayerState();
     }
 
-    if (this.me.dead && !bp.dead) {
-      // Partner runs to player's Holographic Ring and revives player over 3s!
-      const dx = this.me.x - bp.x;
-      const dy = this.me.y - bp.y;
-      const d = Math.hypot(dx, dy) || 1;
-      if (d > 14) {
-        bp.x += (dx / d) * 95 * dt;
-        bp.y += (dy / d) * 95 * dt;
-        bp.wf = ((this.TT * 12) | 0) % 2;
-      } else {
-        bp.wf = 0;
+    const nowMs = now();
+    for (const pid of Object.keys(this.netPlayers)) {
+      const rp = this.netPlayers[pid];
+      if (nowMs - rp.lastSeen > 12000) {
+        delete this.netPlayers[pid];
+        window.dispatchEvent(new CustomEvent('sapo-net-update'));
+        continue;
       }
-      if (d < 34) {
-        this.me.revP = clamp(this.me.revP + dt / 3.0, 0, 1);
-        if (this.me.revP >= 1) {
-          this.me.dead = false;
-          this.me.hp = 2;
-          this.me.inv = 2.0;
-          this.me.revP = 0;
-          document.body.dataset.state = 'playing';
-          this.pt(this.me.x, this.me.y, '#00e676', 36, 140, 0.8, 3.2);
-          this.FT.push({
-            x: this.me.x,
-            y: this.me.y - 28,
-            s: 'REANIMADO PELO PARCEIRO!',
-            c: '#00e676',
-            l: 1.8,
-            b: 1,
-          });
-          this.snd(520, 0.35, 'triangle', 0.09, 480);
+
+      // Real Co-op Revival: stand near a downed online player in the same room for 2.5s to revive them
+      const sameRoom =
+        rp.ST === this.ST && (this.ST === 'camp' || (rp.gx === this.wd.gx && rp.gy === this.wd.gy));
+      if (sameRoom && rp.dead && !this.me.dead) {
+        if (Math.hypot(this.me.x - rp.x, this.me.y - rp.y) < 34) {
+          rp.revP = clamp(rp.revP + dt / 2.5, 0, 1);
+          if (rp.revP >= 1) {
+            rp.dead = false;
+            rp.hp = 2;
+            rp.revP = 0;
+            this.emitNet('revived', { targetId: rp.id });
+            this.pt(rp.x, rp.y, '#00e676', 32, 130, 0.7, 3);
+            this.FT.push({
+              x: rp.x,
+              y: rp.y - 26,
+              s: `${rp.name.toUpperCase()} REANIMADO!`,
+              c: '#00e676',
+              l: 1.5,
+              b: 1,
+            });
+            this.snd(520, 0.35, 'triangle', 0.09, 450);
+          }
+        } else {
+          rp.revP = Math.max(0, rp.revP - dt * 0.5);
         }
       }
-      return;
-    }
-
-    // Follow player smoothly & shoot enemies
-    const targetX = this.me.x + Math.cos(this.TT * 1.4) * 32;
-    const targetY = this.me.y + Math.sin(this.TT * 1.4) * 26;
-    const dx = targetX - bp.x;
-    const dy = targetY - bp.y;
-    const d = Math.hypot(dx, dy);
-    if (d > 8) {
-      bp.x += (dx / d) * Math.min(92, d * 3) * dt;
-      bp.y += (dy / d) * Math.min(92, d * 3) * dt;
-      bp.wf = ((this.TT * 12) | 0) % 2;
-    } else {
-      bp.wf = 0;
-    }
-
-    if (this.ST === 'play' && this.wd.en.length > 0) {
-      const en = this.wd.en[0];
-      bp.ang = Math.atan2(en.y - bp.y, en.x - bp.x);
-      bp.cd -= dt;
-      if (bp.cd <= 0) {
-        bp.cd = 0.52;
-        bp.puff = 0.14;
-        this.spawnBullet(bp.x, bp.y - 5, bp.ang, WP[bp.w], 0.55, { oid: 'bot_partner', col: '#00e5ff' });
-      }
-    } else {
-      bp.ang = this.me.ang;
     }
   }
 
@@ -2612,6 +3259,15 @@ export class GameEngine {
       }
     }
     this.myB = this.myB.filter((b) => b.l > 0);
+
+    // Update remote bullets in camp
+    for (const rb of this.rB) {
+      rb.x += rb.vx * dt;
+      rb.y += rb.vy * dt;
+      rb.l -= dt;
+      if (rb.x <= 8 || rb.x >= W - 8 || rb.y <= 8 || rb.y >= H - 8) rb.l = 0;
+    }
+    this.rB = this.rB.filter((rb) => rb.l > 0);
 
     // Collect gold flies in camp
     for (let i = this.FLIES.length - 1; i >= 0; i--) {
@@ -2701,7 +3357,8 @@ export class GameEngine {
 
     // Full Dynamic Enemy AI & Boss Patterns
     const cell = this.curCell();
-    const aggr = 1 + this.wd.bIdx * 0.08;
+    const pactSpdMult = this.pacts.includes('overload') ? 1.15 : 1.0;
+    const aggr = (1 + this.wd.bIdx * 0.08) * pactSpdMult;
 
     for (const e of this.wd.en) {
       spring(e, dt);
@@ -2858,6 +3515,46 @@ export class GameEngine {
         this.pushOut(e, RAD_STATS[e.t] || 12);
       }
       e.rx = e.x;
+    }
+
+    // Update Acid Rain, Storm Weather & Projectile Physics Wind Drift
+    if (this.weather.type !== 'none') {
+      const splashes = updateAcidRainDrops(this.weather.drops, this.weather.windX, dt, W, H);
+      for (const sp of splashes) {
+        if (Math.random() < 0.45) {
+          this.P.push({
+            x: sp.x,
+            y: sp.y,
+            vx: (Math.random() - 0.5) * 45 + this.weather.windX * 0.25,
+            vy: -15 - Math.random() * 25,
+            g: 220,
+            m: 0.22,
+            l: 0.22,
+            s: 1.8,
+            c: sp.col,
+            shape: 'droplet',
+          });
+        }
+      }
+
+      // Wind drift on enemy bullets
+      for (const b of this.wd.eb) {
+        applyWeatherProjectileDrift(b, this.weather.windX, this.weather.windY, dt, this.weather.intensity * 0.05);
+      }
+
+      // Storm lightning & thunder
+      if (this.weather.type === 'swamp_storm') {
+        this.weather.lightningTimer -= dt;
+        if (this.weather.lightningTimer <= 0) {
+          this.weather.lightningTimer = 5.5 + Math.random() * 7.5;
+          this.weather.flashAlpha = 0.24;
+          this.addShake(4.5);
+          this.snd(70, 0.45, 'sawtooth', 0.06, -35);
+        }
+      }
+      if (this.weather.flashAlpha > 0) {
+        this.weather.flashAlpha = Math.max(0, this.weather.flashAlpha - dt * 3.8);
+      }
     }
 
     // Enemy Bullets vs Walls & Obstacles
@@ -3088,7 +3785,8 @@ export class GameEngine {
                 this.me.revP = 0;
                 this.pt(this.me.x, this.me.y, '#fff', 32, 140, 0.8, 3);
                 this.snd(100, 0.7, 'sawtooth', 0.09, -60);
-                if (!this.botPartner.active || this.botPartner.dead) {
+                const anyAliveAlly = Object.values(this.netPlayers).some((rp) => !rp.dead);
+                if (!anyAliveAlly) {
                   document.body.dataset.state = 'gameover';
                 }
               }
@@ -3113,14 +3811,6 @@ export class GameEngine {
         b.d *= 1.25;
         b.col = '#00e5ff';
       }
-      if (b.tng && this.me.syn['hydra']) {
-        for (const f of this.FLIES) {
-          if (Math.hypot(f.x - b.x, f.y - b.y) < 38) {
-            f.x = this.me.x;
-            f.y = this.me.y;
-          }
-        }
-      }
       if ((this.me.hm || b.shoal) && !b.tng) {
         let nearE: Enemy | null = null;
         let bestD = b.shoal ? 42000 : 26000;
@@ -3140,6 +3830,10 @@ export class GameEngine {
           b.vx += ((dx / dl) * s - b.vx) * turn;
           b.vy += ((dy / dl) * s - b.vy) * turn;
         }
+      }
+
+      if (this.weather.type !== 'none') {
+        applyWeatherProjectileDrift(b, this.weather.windX, this.weather.windY, dt, this.weather.intensity * 0.06);
       }
 
       b.x += b.vx * dt;
@@ -3188,7 +3882,7 @@ export class GameEngine {
           !b.hit.includes(e.id) &&
           Math.hypot(e.x - b.x, e.y - b.y) < (RAD_STATS[e.t] || 12) * (e.chmp ? 1.2 : 1) + b.r
         ) {
-          const kb = (b.tng ? 18 : b.w === 4 ? 14 : 4.5) * (this.me.hyper ? 1.4 : 1);
+          const kb = (b.tng ? 4 : b.w === 4 ? 12 : 4.2) * (this.me.hyper ? 1.3 : 1);
           this.hitEnemy(e, b.d, Math.cos(b.ka) * kb, Math.sin(b.ka) * kb, b.oid || this.me.id);
           b.hit.push(e.id);
           if (!b.p) {
@@ -3200,8 +3894,47 @@ export class GameEngine {
     }
     this.myB = this.myB.filter((b) => b.l > 0);
 
-    // Check Room Clear
+    // Remote Online Player Bullets vs Props, Walls & Enemies
+    for (const rb of this.rB) {
+      rb.x += rb.vx * dt;
+      rb.y += rb.vy * dt;
+      rb.l -= dt;
+      if (rb.x < M || rb.x > W - M || rb.y < M || rb.y > H - M || this.inRock(rb.x, rb.y)) {
+        rb.l = 0;
+        continue;
+      }
+      for (const e of this.wd.en) {
+        if (
+          rb.l > 0 &&
+          !rb.hit.includes(e.id) &&
+          Math.hypot(e.x - rb.x, e.y - rb.y) < (RAD_STATS[e.t] || 12) + rb.r
+        ) {
+          this.hitEnemy(e, rb.d, Math.cos(rb.ka) * 4, Math.sin(rb.ka) * 4, rb.oid);
+          rb.hit.push(e.id);
+          rb.l = 0;
+        }
+      }
+    }
+    this.rB = this.rB.filter((rb) => rb.l > 0);
+
+    // Check Multi-Wave Room Progression & Room Clear
     if (!this.wd.clear && !this.wd.en.length) {
+      if (cell && cell.type === 'combat' && cell.wave < cell.maxWaves) {
+        cell.wave++;
+        this.FT.push({
+          x: 240,
+          y: 96,
+          s: `ONDA ${cell.wave}/${cell.maxWaves} EMERGIU DO PÂNTANO!`,
+          c: '#ff9100',
+          l: 1.7,
+          b: 1,
+        });
+        this.snd(240, 0.28, 'sawtooth', 0.07, 140);
+        this.addShake(4);
+        this.spawnCombatWaveEnemies(2 + this.wd.bIdx);
+        return;
+      }
+
       this.wd.clear = true;
       if (cell) {
         cell.clear = true;
@@ -3221,12 +3954,12 @@ export class GameEngine {
       }
       if (!this.roomDamaged) {
         this.unlockAch('untouch');
-        if (Math.random() < 0.04) this.spawnLarvaDrop(240, 160, 1);
       }
       this.snd(440, 0.25, 'triangle', 0.07, 220);
 
       if (cell?.type === 'boss') {
-        this.spawnLarvaDrop(240, 150, 1 + (Math.random() < 0.25 ? 1 : 0));
+        const bonusLarva = this.wd.bIdx >= 3 && Math.random() < 0.2 ? 1 : 0;
+        this.spawnLarvaDrop(240, 150, 1 + bonusLarva);
         if (this.wd.bIdx >= 4) {
           this.wd.over = 'win';
           this.unlockAch('win');
@@ -3314,61 +4047,96 @@ export class GameEngine {
     }
   }
 
+  drawAlwaysOutTongueWhip() {
+    if (this.me.w !== 3 || this.me.dead || this.tongueChain.length < 2) return;
+    const g = this.ctx;
+    const chain = this.tongueChain;
+    const tip = chain[chain.length - 1];
+    const r = 4.2 * Math.min(1.35, this.me.big || 1);
+
+    g.save();
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+
+    const drawWhipPass = (offsetAng = 0, scaleLen = 1) => {
+      const pts = chain.map((pt, idx) => {
+        if (idx === 0 || offsetAng === 0) return pt;
+        const dx = pt.x - chain[0].x;
+        const dy = pt.y - chain[0].y;
+        const ca = Math.cos(offsetAng);
+        const sa = Math.sin(offsetAng);
+        return {
+          x: chain[0].x + (dx * ca - dy * sa) * scaleLen,
+          y: chain[0].y + (dx * sa + dy * ca) * scaleLen,
+        };
+      });
+
+      // 1. Dark organic outline
+      g.strokeStyle = '#3b0718';
+      g.lineWidth = 6.2;
+      g.beginPath();
+      g.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+      g.stroke();
+
+      // 2. Main fleshy whip tongue body
+      g.strokeStyle = '#ff4081';
+      g.lineWidth = 3.8;
+      g.beginPath();
+      g.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+      g.stroke();
+
+      // 3. Wet specular highlight along the spine
+      g.strokeStyle = '#ff80ab';
+      g.lineWidth = 1.4;
+      g.beginPath();
+      g.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+      g.stroke();
+
+      // 4. Articulated vertebral nodes along the whip (Castlevania Morning Star / Whip feel)
+      for (let i = 2; i < pts.length - 1; i += 2) {
+        g.fillStyle = '#f50057';
+        g.beginPath();
+        g.arc(pts[i].x, pts[i].y, 2.2, 0, 7);
+        g.fill();
+      }
+
+      // 5. Sticky curled tongue pad at the tip
+      const pTip = pts[pts.length - 1];
+      g.fillStyle = '#3b0718';
+      g.beginPath();
+      g.arc(pTip.x, pTip.y, r + 1.1, 0, 7);
+      g.fill();
+      g.fillStyle = '#ff4081';
+      g.beginPath();
+      g.arc(pTip.x, pTip.y, r, 0, 7);
+      g.fill();
+      g.fillStyle = '#ffcdd2';
+      g.beginPath();
+      g.arc(pTip.x - 1, pTip.y - 1, r * 0.42, 0, 7);
+      g.fill();
+    };
+
+    if (this.me.syn['hydra'] || this.me.tri) {
+      drawWhipPass(-0.28, 0.88);
+      drawWhipPass(0.28, 0.88);
+    }
+    drawWhipPass(0, 1);
+
+    // Subtle neon glow at the whip tip
+    g.globalCompositeOperation = 'lighter';
+    g.globalAlpha = 0.22;
+    g.drawImage(glow('#ff4081'), tip.x - r * 2.2, tip.y - r * 2.2, r * 4.4, r * 4.4);
+    g.restore();
+  }
+
   drawBullet(b: any, isEnemy = false) {
     const g = this.ctx;
     const c = isEnemy ? '#ff5252' : b.col || WP[b.w]?.col || '#76ff03';
     const r = b.r || 4;
     const ang = Math.atan2(b.vy, b.vx);
-
-    if (b.tng) {
-      // Articulated Elastic Pink Frog Tongue Lash coming directly from the frog's mouth!
-      const ox = this.me.x + Math.cos(this.me.ang) * 5;
-      const oy = this.me.y - 7 - this.me.z + Math.sin(this.me.ang) * 4;
-      const mx = (ox + b.x) * 0.5 + Math.sin(this.TT * 35) * 4 * -Math.sin(ang);
-      const my = (oy + b.y) * 0.5 + Math.sin(this.TT * 35) * 4 * Math.cos(ang);
-
-      g.save();
-      g.lineCap = 'round';
-      // Outer dark organic outline
-      g.strokeStyle = '#3b0718';
-      g.lineWidth = 6.5;
-      g.beginPath();
-      g.moveTo(ox, oy);
-      g.quadraticCurveTo(mx, my, b.x, b.y);
-      g.stroke();
-
-      // Main fleshy tongue body
-      g.strokeStyle = '#ff4081';
-      g.lineWidth = 4.2;
-      g.beginPath();
-      g.moveTo(ox, oy);
-      g.quadraticCurveTo(mx, my, b.x, b.y);
-      g.stroke();
-
-      // Wet specular center stripe
-      g.strokeStyle = '#ff80ab';
-      g.lineWidth = 1.6;
-      g.beginPath();
-      g.moveTo(ox, oy);
-      g.quadraticCurveTo(mx, my, b.x, b.y);
-      g.stroke();
-
-      // Curled sticky tongue tip pad at (b.x, b.y)
-      g.fillStyle = '#3b0718';
-      g.beginPath();
-      g.arc(b.x, b.y, r * 1.15 + 1, 0, 7);
-      g.fill();
-      g.fillStyle = '#ff4081';
-      g.beginPath();
-      g.arc(b.x, b.y, r * 1.05, 0, 7);
-      g.fill();
-      g.fillStyle = '#ffcdd2';
-      g.beginPath();
-      g.arc(b.x - 1, b.y - 1, r * 0.45, 0, 7);
-      g.fill();
-      g.restore();
-      return;
-    }
 
     // Wriggling Tadpole Tail for Enxame Girino (b.w === 1 or b.shoal)
     if (!isEnemy && (b.w === 1 || b.shoal)) {
@@ -3449,16 +4217,39 @@ export class GameEngine {
           [-1, 0],
           [1, 0],
         ].some(([dx, dy]) => this.wd.grid?.[y + dy]?.[x + dx]?.vis);
-        if (!c.vis && !adjVis) continue;
 
         const rx = mx + x * (sz + gap);
         const ry = my + y * (sz + gap);
         const isCur = x === this.wd.gx && y === this.wd.gy;
-        g.fillStyle = isCur ? '#ffd54f' : c.vis ? (c.clear ? '#43a047' : '#ef5350') : '#263238';
+
+        // Draw door connectors to east and south neighbors
+        g.fillStyle = c.vis ? '#66bb6a' : '#264230';
+        if (c.doors.E && x < 4 && this.wd.grid[y][x + 1]?.active) {
+          g.fillRect(rx + sz, ry + 3, gap, 3);
+        }
+        if (c.doors.S && y < 4 && this.wd.grid[y + 1]?.[x]?.active) {
+          g.fillRect(rx + 3, ry + sz, 3, gap);
+        }
+
+        g.fillStyle = isCur
+          ? '#ffd54f'
+          : c.vis
+          ? c.clear
+            ? '#43a047'
+            : '#ef5350'
+          : adjVis
+          ? '#37474f'
+          : '#16261d';
         g.fillRect(rx, ry, sz, sz);
+        if (!c.vis && !adjVis) {
+          g.strokeStyle = '#2e573c';
+          g.lineWidth = 0.8;
+          g.strokeRect(rx + 0.5, ry + 0.5, sz - 1, sz - 1);
+        }
         if (c.type === 'boss') drawText(g, 'B', rx + 4.5, ry + 7.5, '#ff1744', 'center', 5);
         else if (c.type === 'shop') drawText(g, '$', rx + 4.5, ry + 7.5, '#ffd54f', 'center', 5);
         else if (c.type === 'treasure') drawText(g, 'M', rx + 4.5, ry + 7.5, '#29b6f6', 'center', 5);
+        else if (c.type === 'shrine' || c.shrine) drawText(g, 'A', rx + 4.5, ry + 7.5, '#e040fb', 'center', 5);
       }
     }
   }
@@ -3468,10 +4259,20 @@ export class GameEngine {
     const g = this.ctx;
     g.save();
 
-    // Subtle organic aim guide dots from frog's mouth to the crosshair reticle
+    // Subtle organic aim guide dots from the exact frog mouth to the crosshair reticle
     if (this.me && !this.me.dead) {
-      const ox = this.me.x + Math.cos(this.me.ang) * 8;
-      const oy = this.me.y - 7 - this.me.z + Math.sin(this.me.ang) * 6;
+      const sc = (1 + (this.me.big - 1) * 0.25) * (this.me.its.length >= 4 ? 1.08 : 1);
+      const mouth = getFrogMouthOrigin(
+        this.me.x,
+        this.me.y,
+        this.me.z,
+        this.me.ang,
+        sc,
+        this.me.wf,
+        this.me.j
+      );
+      const ox = mouth.x;
+      const oy = mouth.y;
       const dist = Math.hypot(this.mouse.x - ox, this.mouse.y - oy);
       const steps = Math.min(5, Math.floor(dist / 18));
       const wCol = WP[this.me.w]?.col || '#69f0ae';
@@ -3682,7 +4483,9 @@ export class GameEngine {
         this.saveProgress();
       }
       if (e.code === b.partner) {
-        if ((this.ST === 'play' || this.ST === 'camp') && !this.paused) this.toggleBotPartner();
+        if ((this.ST === 'play' || this.ST === 'camp') && !this.paused) {
+          window.dispatchEvent(new CustomEvent('sapo-open-coop'));
+        }
       }
       if (e.code === 'Escape' || e.code === 'KeyP') {
         if (this.ST === 'play' || this.ST === 'camp') {

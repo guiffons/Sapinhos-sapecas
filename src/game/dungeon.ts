@@ -1,5 +1,5 @@
 /**
- * Procedural 5x5 Dungeon Graph Generation with Shop, Treasure, Totems & Co-op Chests
+ * Procedural 5x5 Dungeon Graph Generation with Winding Path to Boss, Multi-Wave Rooms, Shrines, Shop, Treasure & Totems
  */
 
 import { CH, IT, RAR_INFO } from './constants.ts';
@@ -38,6 +38,13 @@ export interface TotemProp {
   state: number; // 0 = ready, 1 = active elite wave, 2 = cleared
 }
 
+export interface ShrineProp {
+  x: number;
+  y: number;
+  kind: 'blood' | 'fortune' | 'spring';
+  used: boolean;
+}
+
 export interface DungeonCell {
   gx: number;
   gy: number;
@@ -46,12 +53,16 @@ export interface DungeonCell {
   vis: boolean;
   clear: boolean;
   lay: number;
+  dist: number;
+  wavesTotal: number;
+  waveCur: number;
   doors: CellDoors;
   locked: boolean;
   chest: ChestProp | null;
   shop: ShopPedestal[] | null;
   coopChest: ChestProp | null;
   totem: TotemProp | null;
+  shrine: ShrineProp | null;
 }
 
 export function createPseudoRandom(seed: number) {
@@ -71,9 +82,9 @@ export function rollItemByRarity(
 ): number {
   const roll = r() + luckBonus;
   let targetR = minR;
-  if (roll > 0.92) targetR = 3;
-  else if (roll > 0.74) targetR = 2;
-  else if (roll > 0.44) targetR = 1;
+  if (roll > 0.94) targetR = 3;
+  else if (roll > 0.78) targetR = 2;
+  else if (roll > 0.48) targetR = 1;
   targetR = Math.max(minR, Math.min(maxR, targetR));
 
   const affList = CH[frogIdx]?.aff || [];
@@ -109,12 +120,16 @@ export function generateDungeonGrid(
       vis: false,
       clear: false,
       lay: 0,
+      dist: 0,
+      wavesTotal: 1,
+      waveCur: 1,
       doors: { N: false, S: false, W: false, E: false },
       locked: false,
       chest: null,
       shop: null,
       coopChest: null,
       totem: null,
+      shrine: null,
     }))
   );
 
@@ -130,9 +145,20 @@ export function generateDungeonGrid(
     return c;
   };
 
+  const linkDoors = (
+    c1: DungeonCell,
+    c2: DungeonCell,
+    d1: keyof CellDoors,
+    d2: keyof CellDoors
+  ) => {
+    c1.doors[d1] = true;
+    c2.doors[d2] = true;
+  };
+
   const startCell = addCell(2, 2, 'start');
   startCell.vis = true;
   startCell.clear = true;
+  startCell.dist = 0;
 
   const dirs: Array<[number, number, keyof CellDoors, keyof CellDoors]> = [
     [0, -1, 'N', 'S'],
@@ -141,58 +167,100 @@ export function generateDungeonGrid(
     [1, 0, 'E', 'W'],
   ];
 
+  // Phase 1: Carve a long winding primary spine (5 to 7 rooms deep) so the Boss is never right next to Start
   let cx = 2;
   let cy = 2;
-  const targetCount = 8 + Math.floor(r() * 3);
-  let tries = 0;
-
-  while (cells.length < targetCount && tries++ < 250) {
-    const d = dirs[Math.floor(r() * 4)];
-    const nx = cx + d[0];
-    const ny = cy + d[1];
-    if (nx >= 0 && nx < 5 && ny >= 0 && ny < 5) {
-      addCell(nx, ny, 'combat');
-      cx = nx;
-      cy = ny;
+  const spineTarget = 6 + Math.min(2, bIdx);
+  for (let step = 0; step < spineTarget * 4 && cells.length < spineTarget; step++) {
+    // Prefer unvisited neighbors to create a true winding corridor
+    const valid: Array<[number, number, keyof CellDoors, keyof CellDoors]> = [];
+    for (const d of dirs) {
+      const nx = cx + d[0];
+      const ny = cy + d[1];
+      if (nx >= 0 && nx < 5 && ny >= 0 && ny < 5 && !grid[ny][nx].active) {
+        valid.push(d);
+      }
+    }
+    if (valid.length > 0) {
+      const d = valid[Math.floor(r() * valid.length)];
+      const prev = grid[cy][cx];
+      const next = addCell(cx + d[0], cy + d[1], 'combat');
+      linkDoors(prev, next, d[2], d[3]);
+      cx = next.gx;
+      cy = next.gy;
     } else {
-      const pick = cells[Math.floor(r() * cells.length)];
-      cx = pick.gx;
-      cy = pick.gy;
+      break;
     }
   }
 
-  // Connect doors
-  for (let y = 0; y < 5; y++) {
-    for (let x = 0; x < 5; x++) {
-      const c = grid[y][x];
-      if (!c.active) continue;
-      for (const [dx, dy, d1, d2] of dirs) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx >= 0 && nx < 5 && ny >= 0 && ny < 5 && grid[ny][nx].active) {
-          c.doors[d1] = true;
-          grid[ny][nx].doors[d2] = true;
+  // Phase 2: Expand side branches to reach 12–15 rooms total per floor
+  const targetCount = Math.min(16, 12 + Math.floor(r() * 3) + Math.min(2, bIdx));
+  let tries = 0;
+  while (cells.length < targetCount && tries++ < 300) {
+    const pick = cells[Math.floor(r() * cells.length)];
+    const d = dirs[Math.floor(r() * 4)];
+    const nx = pick.gx + d[0];
+    const ny = pick.gy + d[1];
+    if (nx >= 0 && nx < 5 && ny >= 0 && ny < 5) {
+      const wasActive = grid[ny][nx].active;
+      const next = addCell(nx, ny, 'combat');
+      // Only link tree edges or occasional loop (15% chance) so dungeon corridors stay long
+      if (!wasActive || r() < 0.15) {
+        linkDoors(pick, next, d[2], d[3]);
+      }
+    }
+  }
+
+  // Compute exact BFS shortest-path distance through connected doors from Start (2,2)
+  for (const c of cells) c.dist = 99;
+  startCell.dist = 0;
+  const queue: DungeonCell[] = [startCell];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    for (const [dx, dy, d1] of dirs) {
+      if (!cur.doors[d1]) continue;
+      const nx = cur.gx + dx;
+      const ny = cur.gy + dy;
+      if (nx >= 0 && nx < 5 && ny >= 0 && ny < 5) {
+        const nb = grid[ny][nx];
+        if (nb.active && nb.dist > cur.dist + 1) {
+          nb.dist = cur.dist + 1;
+          queue.push(nb);
         }
       }
     }
   }
 
-  // Assign special rooms based on distance from start (2,2)
+  // Ensure any isolated active cell (if any) is linked
+  for (const c of cells) {
+    if (c.dist === 99) {
+      for (const [dx, dy, d1, d2] of dirs) {
+        const nx = c.gx + dx;
+        const ny = c.gy + dy;
+        if (nx >= 0 && nx < 5 && ny >= 0 && ny < 5 && grid[ny][nx].active && grid[ny][nx].dist < 99) {
+          linkDoors(c, grid[ny][nx], d1, d2);
+          c.dist = grid[ny][nx].dist + 1;
+          break;
+        }
+      }
+    }
+  }
+
+  // Assign special rooms based on true BFS path distance from start (2,2)
   const candidates = cells.filter((c) => !(c.gx === 2 && c.gy === 2));
-  candidates.sort((a, b) => {
-    const da = Math.abs(a.gx - 2) + Math.abs(a.gy - 2);
-    const db = Math.abs(b.gx - 2) + Math.abs(b.gy - 2);
-    return db - da;
-  });
+  candidates.sort((a, b) => b.dist - a.dist);
 
   if (candidates.length > 0) {
     const bossCell = candidates[0];
     bossCell.type = 'boss';
     bossCell.lay = 0;
+    bossCell.wavesTotal = 1;
   }
 
   if (candidates.length > 1) {
-    const shopCell = candidates[candidates.length > 2 ? candidates.length - 1 : 1];
+    // Place shop at mid-distance so players earn flies before visiting the merchant
+    const midIdx = Math.min(candidates.length - 1, Math.max(1, Math.floor(candidates.length * 0.55)));
+    const shopCell = candidates[midIdx];
     shopCell.type = 'shop';
     shopCell.clear = true;
     shopCell.lay = 0;
@@ -200,15 +268,16 @@ export function generateDungeonGrid(
     let kShop2 = rollItemByRarity(r, 1, 3, frogIdx, luckBonus);
     if (kShop2 === kShop1) kShop2 = (kShop2 + 1) % IT.length;
     shopCell.shop = [
-      { x: 144, y: 168, t: 'hp', nm: 'CORAÇÃO FRESCO', ds: 'Restaura +1 Vida', cost: 16, sold: false },
-      { x: 208, y: 168, t: 'key', nm: 'CHAVE DE OSSO', ds: 'Abre Sala de Mutação', cost: 18, sold: false },
+      { x: 144, y: 168, t: 'hp', nm: 'CORAÇÃO FRESCO', ds: 'Restaura +1 Vida', cost: 20, sold: false },
+      { x: 208, y: 168, t: 'key', nm: 'CHAVE DE OSSO', ds: 'Abre Sala de Mutação', cost: 22, sold: false },
       { x: 272, y: 168, t: 'ankh_or_it', k: kShop1, cost: RAR_INFO[IT[kShop1][2]].cost, sold: false },
       { x: 336, y: 168, t: 'it', k: kShop2, cost: RAR_INFO[IT[kShop2][2]].cost, sold: false },
     ];
   }
 
   if (candidates.length > 2) {
-    const treasCell = candidates.find((c) => c.type !== 'boss' && c.type !== 'shop') || candidates[1];
+    const treasCell =
+      candidates.find((c, i) => i >= 1 && c.type !== 'boss' && c.type !== 'shop') || candidates[1];
     treasCell.type = 'treasure';
     treasCell.clear = true;
     treasCell.locked = true;
@@ -221,8 +290,15 @@ export function generateDungeonGrid(
     };
   }
 
+  // Assign multi-wave combat rooms and Swamp Shrines along the dungeon path
+  const shrineKinds: Array<'blood' | 'fortune' | 'spring'> = ['blood', 'fortune', 'spring'];
+  let shrinesPlaced = 0;
+
   for (const c of cells) {
     if (c.type === 'combat') {
+      // Rooms with BFS distance >= 2 have 2 combat waves so the journey to the boss is longer & deeper
+      c.wavesTotal = c.dist >= 2 ? 2 : 1;
+      c.waveCur = 1;
       c.coopChest = {
         x: 240,
         y: 162,
@@ -231,6 +307,16 @@ export function generateDungeonGrid(
         k: rollItemByRarity(r, 1, 3, frogIdx, luckBonus),
       };
       c.totem = { x: 240, y: 76, state: 0 };
+
+      if (shrinesPlaced < 2 && c.dist >= 2 && r() < 0.35) {
+        c.shrine = {
+          x: 116,
+          y: 84,
+          kind: shrineKinds[(shrinesPlaced + bIdx) % shrineKinds.length],
+          used: false,
+        };
+        shrinesPlaced++;
+      }
     }
   }
 

@@ -6,7 +6,7 @@ interface TitleScreenProps {
   engine: GameEngine | null;
   onStartSolo: (charIdx: number) => void;
   onStartDirect?: (charIdx: number) => void;
-  onStartCoop: (charIdx: number, code: string) => void;
+  onStartCoop: (charIdx: number, code: string, playerName?: string) => void;
   onOpenAchievements: () => void;
   onOpenOptions: () => void;
   onOpenShaman: () => void;
@@ -52,17 +52,27 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 }) => {
   const [selectedChar, setSelectedChar] = useState<number>(0);
   const [roomCode, setRoomCode] = useState<string>('sapo' + Math.floor(10 + Math.random() * 89));
-  const [larvae, setLarvae] = useState<number>(0);
+  const [larvae, setLarvae] = useState<number>(engine?.achStats.larvae ?? 0);
   const [, setTick] = useState<number>(0);
   const stageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const animAngleRef = useRef<number>(0);
 
-  const forceUpdate = () => setTick((t) => t + 1);
+  const forceUpdate = () => {
+    if (engine) setLarvae(engine.achStats.larvae);
+    setTick((t) => t + 1);
+  };
 
   useEffect(() => {
-    if (engine) {
-      setLarvae(engine.achStats.larvae);
-    }
+    const syncLarvae = () => {
+      if (engine) setLarvae(engine.achStats.larvae);
+    };
+    syncLarvae();
+    window.addEventListener('sapo-progress-update', syncLarvae);
+    const interval = setInterval(syncLarvae, 250);
+    return () => {
+      window.removeEventListener('sapo-progress-update', syncLarvae);
+      clearInterval(interval);
+    };
   }, [engine]);
 
   const curChar: CharacterDef = CH[selectedChar];
@@ -526,33 +536,33 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             </button>
           )}
 
-          {/* Co-op Room & Bot Partner Box */}
-          <div className="bg-[#09140ef5] border-2 border-[#66bb6a] p-2.5 flex flex-col gap-1.5 shadow-[4px_4px_0_#000]">
-            <div className="flex justify-between items-center text-[11px] font-mono font-bold text-[#a5d6a7]">
+          {/* Real Online Co-op Room Box (WebSocket + Multi-Tab Broadcast, Zero Bots) */}
+          <div className="bg-[#09140ef5] border-2 border-[#00e5ff] p-2.5 flex flex-col gap-1.5 shadow-[4px_4px_0_#000]">
+            <div className="flex justify-between items-center text-[10px] font-mono font-bold text-[#84ffff]">
               <span className="flex items-center gap-1.5">
                 <PixelIcon sprite={engine?.S?.pIdle?.[1]} size={14} />
-                <span>SALA CO-OP / PARCEIRO</span>
+                <span>SALA MULTIPLAYER CO-OP</span>
               </span>
-              <span className="text-[#ffd54f]">P2P + BOT</span>
+              <span className="text-[#ffd54f]">ONLINE REAL · SEM BOT</span>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-1.5">
               <input
                 type="text"
                 value={roomCode}
                 onChange={(e) => setRoomCode(e.target.value.toLowerCase().slice(0, 10))}
-                placeholder="código"
-                aria-label="Código da Sala Co-op"
-                className="flex-1 bg-[#040806] text-[#ffd54f] font-mono font-bold text-center border-2 border-[#2e573c] px-2 py-1 text-xs uppercase focus:outline-none focus:border-[#ffd54f]"
+                placeholder="sala (ex: sapo01)"
+                aria-label="Código da Sala Co-op Online"
+                className="flex-1 bg-[#040806] text-[#ffd54f] font-mono font-bold text-center border-2 border-[#00838f] px-2 py-1 text-xs uppercase focus:outline-none focus:border-[#00e5ff]"
               />
               <button
                 disabled={!isUnlocked}
                 onClick={() => {
-                  if (engine && !engine.botPartner.active) engine.toggleBotPartner();
-                  onStartCoop(selectedChar, roomCode);
+                  onStartCoop(selectedChar, roomCode || 'sapo01');
                 }}
-                className="px-3 py-1 font-mono font-black text-xs text-white bg-[#5e35b1] hover:bg-[#7e57c2] border-2 border-[#b39ddb] shadow-[0_3px_0_#281566] active:translate-y-0.5 active:shadow-none cursor-pointer disabled:opacity-50"
+                data-testid="title-btn-coop"
+                className="px-3 py-1 font-mono font-black text-xs text-[#041014] bg-[#00e5ff] hover:bg-[#84ffff] border-2 border-[#ffffff] shadow-[0_3px_0_#004d40] active:translate-y-0.5 active:shadow-none cursor-pointer disabled:opacity-50"
               >
-                CO-OP
+                CONECTAR
               </button>
             </div>
           </div>

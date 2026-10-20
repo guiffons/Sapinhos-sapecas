@@ -42,8 +42,12 @@ export default function App() {
     eng.onOpenAchievements = () => setActiveModal('achievements');
     eng.onOpenOptions = () => setActiveModal('options');
 
-    // Check query params for autostart
+    // Check query params for autostart or room join
     const params = new URLSearchParams(window.location.search);
+    const urlRoom = params.get('room');
+    if (urlRoom) {
+      eng.joinMultiplayerRoom(urlRoom);
+    }
     if (params.get('autostart') === '1' || params.get('play') === '1') {
       eng.initPlayer(0);
       eng.reset(false);
@@ -94,10 +98,11 @@ export default function App() {
     engineRef.current.snd(380, 0.28, 'triangle', 0.09, 440);
   };
 
-  const handleStartCoop = (charIdx: number, code: string) => {
+  const handleStartCoop = (charIdx: number, code: string, playerName?: string) => {
     if (!engineRef.current) return;
     engineRef.current.initPlayer(charIdx);
     engineRef.current.reset(true);
+    engineRef.current.joinMultiplayerRoom(code || 'sapo01', playerName);
     setGameState('camp');
     document.body.dataset.state = 'camp';
     engineRef.current.snd(320, 0.25, 'triangle', 0.08, 380);
