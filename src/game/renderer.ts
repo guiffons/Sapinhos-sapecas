@@ -1,0 +1,1659 @@
+/**
+ * High-Craft 2.5D Pixel Art Renderer (Enter the Gungeon & Forager Aesthetic)
+ */
+
+import {
+  CH,
+  WP,
+  IT,
+  TH,
+  RAR_INFO,
+  BOSS_NAMES,
+  LAYOUT_NMS,
+  DEFAULT_BINDS,
+  formatKeyLabel,
+} from './constants.ts';
+import type { GameEngine } from './engine.ts';
+import { W, H, M, clamp, sil, glow } from './engine.ts';
+import type { DungeonCell } from './dungeon.ts';
+
+export function drawText(
+  g: CanvasRenderingContext2D,
+  s: string,
+  x: number,
+  y: number,
+  c = '#e8f5e9',
+  a: CanvasTextAlign = 'left',
+  sz = 8
+) {
+  g.font = `900 ${sz}px "Press Start 2P", "Silkscreen", monospace`;
+  g.textAlign = a;
+  g.lineWidth = 3;
+  g.strokeStyle = '#050a07';
+  g.lineJoin = 'round';
+  g.strokeText(s, Math.round(x), Math.round(y));
+  g.fillStyle = c;
+  g.fillText(s, Math.round(x), Math.round(y));
+}
+
+export function getMutatedFrogSprite(
+  eng: GameEngine,
+  cIdx: number,
+  wf: number,
+  puff: number,
+  isBlink: boolean,
+  itCnt: number,
+  synCnt: number
+): HTMLCanvasElement {
+  const stage = itCnt >= 4 || synCnt > 0 ? 2 : itCnt >= 2 ? 1 : 0;
+  if (stage === 2 && eng.S.pIdleMut2) {
+    return puff > 0
+      ? eng.S.pPuffMut2[cIdx]
+      : wf
+      ? eng.S.pWalkMut2[cIdx]
+      : eng.S.pIdleMut2[cIdx];
+  }
+  if (stage === 1 && eng.S.pIdleMut1) {
+    return puff > 0
+      ? eng.S.pPuffMut1[cIdx]
+      : wf
+      ? eng.S.pWalkMut1[cIdx]
+      : eng.S.pIdleMut1[cIdx];
+  }
+  return puff > 0
+    ? eng.S.pPuff[cIdx]
+    : wf
+    ? eng.S.pWalk[cIdx]
+    : isBlink && eng.S.pBlink
+    ? eng.S.pBlink[cIdx]
+    : eng.S.pIdle[cIdx];
+}
+
+/**
+ * Organic Mouth Spit, Tongue Lash & Vocal Sac Attack Animation (Zero Held Guns!)
+ */
+export function drawMouthAttackAnim(
+  eng: GameEngine,
+  x: number,
+  y: number,
+  z: number,
+  ang: number,
+  wIdx: number,
+  puff: number
+) {
+  if (puff <= 0) return;
+  const g = eng.ctx;
+  const w = WP[wIdx] || WP[0];
+  const prog = clamp(1 - puff / 0.24, 0, 1);
+  const sinP = Math.sin(prog * Math.PI);
+
+  // Mouth origin right at the frog's open mouth
+  const mx = x + Math.cos(ang) * 5;
+  const my = y - 7 - z + Math.sin(ang) * 4;
+
+  g.save();
+  g.translate(Math.round(mx), Math.round(my));
+  g.rotate(ang);
+
+  // 1. Inflated Vocal Throat Sac Pulse
+  g.fillStyle = w.col + '55';
+  g.beginPath();
+  g.arc(-2, 2, 4.5 * sinP, 0, 7);
+  g.fill();
+
+  // 2. Elastic Pink Frog Tongue Flicking Out of the Mouth!
+  const tngLen = (wIdx === 3 ? 19 : 9.5) * sinP;
+  if (tngLen > 1) {
+    // Dark outline of tongue
+    g.fillStyle = '#3b0718';
+    g.fillRect(-1, -2.5, tngLen + 2, 5);
+    // Fleshy pink tongue body
+    g.fillStyle = '#ff4081';
+    g.fillRect(0, -1.8, tngLen, 3.6);
+    // Wet highlight stripe
+    g.fillStyle = '#ff80ab';
+    g.fillRect(1, -0.8, Math.max(1, tngLen - 1.5), 1.4);
+    // Sticky curled tongue tip
+    g.fillStyle = '#ff4081';
+    g.beginPath();
+    g.arc(tngLen, 0, 2.6, 0, 7);
+    g.fill();
+    g.fillStyle = '#ffffff';
+    g.fillRect(tngLen - 0.5, -1.2, 1.2, 1.2);
+  }
+
+  // 3. Expanding Organic Spit / Vocal Shockwave Ring & Saliva Droplets
+  const waveDist = 4 + prog * 13;
+  const waveR = 3 + sinP * (wIdx === 4 ? 7 : 5);
+  g.strokeStyle = w.col;
+  g.lineWidth = 1.6;
+  g.globalAlpha = clamp(1 - prog * 0.85, 0.15, 0.95);
+  g.beginPath();
+  g.ellipse(waveDist, 0, waveR * 0.65, waveR, 0, -1.3, 1.3);
+  g.stroke();
+
+  // Inner white spit burst flash
+  if (puff > 0.11) {
+    g.fillStyle = '#ffffff';
+    g.fillRect(3, -1.5, 4, 3);
+    g.fillStyle = w.col;
+    g.fillRect(6 + prog * 6, -4 * sinP, 2.5, 2.5);
+    g.fillRect(6 + prog * 6, 4 * sinP - 2, 2.5, 2.5);
+  }
+
+  g.restore();
+}
+
+export function drawFrogExtras(
+  eng: GameEngine,
+  px: number,
+  py: number,
+  z: number,
+  ang: number,
+  wIdx: number,
+  puff: number,
+  fly: number,
+  sh: number,
+  fam: number,
+  clone: number,
+  itCnt: number,
+  cIdx: number,
+  synCnt = 0,
+  its: number[] = []
+) {
+  const g = eng.ctx;
+  const ey = py - z;
+  const stage = itCnt >= 4 || synCnt > 0 ? 2 : itCnt >= 2 ? 1 : 0;
+
+  // Biological Evolution Aura
+  if (stage >= 1) {
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    g.globalAlpha = (stage === 2 ? 0.36 : 0.2) + Math.sin(eng.TT * 8) * 0.06;
+    g.drawImage(
+      glow(stage === 2 ? '#ffd54f' : CH[cIdx]?.a || '#00e676'),
+      px - 20,
+      ey - 20,
+      40,
+      40
+    );
+    g.restore();
+  }
+
+  // Visible Body Mutations on the Frog Sprite!
+  // 1) Poison / Acid Cheek Glands (Mutations 0, 7, 9, 15)
+  if (its.includes(0) || its.includes(7) || its.includes(9) || its.includes(15)) {
+    const pulse = Math.sin(eng.TT * 10) * 0.8;
+    g.fillStyle = '#1b5e20';
+    g.fillRect(px - 12, ey - 9, 4, 4);
+    g.fillRect(px + 8, ey - 9, 4, 4);
+    g.fillStyle = '#76ff03';
+    g.fillRect(px - 11, ey - 8 + pulse * 0.3, 2.5, 2.5);
+    g.fillRect(px + 8.5, ey - 8 - pulse * 0.3, 2.5, 2.5);
+  }
+
+  // 2) Mutant Dorsal Spikes / Bio-Horns (Stage >= 1 or Mutations 4, 8, 16)
+  if (stage >= 1 || its.includes(4) || its.includes(8)) {
+    g.fillStyle = stage === 2 ? '#ffd54f' : '#00e5ff';
+    g.fillRect(px - 8, ey - 18, 2, 3);
+    g.fillRect(px + 6, ey - 18, 2, 3);
+  }
+
+  // 3) Vampire Fangs on Mouth (Mutation 12)
+  if (its.includes(12)) {
+    g.fillStyle = '#ffffff';
+    g.fillRect(px - 4, ey - 6, 2, 3);
+    g.fillRect(px + 2, ey - 6, 2, 3);
+    g.fillStyle = '#ff1744';
+    g.fillRect(px - 4, ey - 4, 2, 1);
+    g.fillRect(px + 2, ey - 4, 2, 1);
+  }
+
+  // 4) Psychic Floating 3rd Eye (Mutation 5)
+  if (its.includes(5)) {
+    const fy = ey - 20 + Math.sin(eng.TT * 7) * 1.5;
+    g.fillStyle = '#311b92';
+    g.fillRect(px - 3, fy - 2, 6, 4);
+    g.fillStyle = '#e040fb';
+    g.fillRect(px - 2, fy - 1, 4, 2);
+    g.fillStyle = '#ffffff';
+    g.fillRect(px - 1, fy - 1, 2, 1);
+  }
+
+  // 5) Bio-Electric Sparks (Mutation 18)
+  if (its.includes(18)) {
+    const sa = eng.TT * 12;
+    g.fillStyle = '#00e5ff';
+    g.fillRect(px + Math.cos(sa) * 13 - 1, ey - 8 + Math.sin(sa) * 9 - 1, 2, 2);
+    g.fillStyle = '#ffd54f';
+    g.fillRect(px - Math.cos(sa) * 13 - 1, ey - 8 - Math.sin(sa) * 9 - 1, 2, 2);
+  }
+
+  // Dragonfly Wings (Mutation 13 or Hypno-Toad)
+  if (fly) {
+    const wy = ey - 10 + Math.sin(eng.TT * 26) * 2.5;
+    g.save();
+    g.globalAlpha = 0.88;
+    g.drawImage(eng.S.items[13], px - 12, wy - 8, 24, 18);
+    g.restore();
+  }
+
+  // Organic Mouth Attack Animation (Spit / Tongue Lash / Vocal Wave)
+  drawMouthAttackAnim(eng, px, py, z, ang, wIdx, puff);
+
+  // Bubble Shield
+  if (sh > 0) {
+    g.save();
+    g.strokeStyle = '#40c4ff';
+    g.lineWidth = 1.6;
+    g.globalAlpha = 0.65 + Math.sin(eng.TT * 6) * 0.15;
+    g.beginPath();
+    g.arc(px, ey - 5, 16, 0, 7);
+    g.stroke();
+    g.fillStyle = '#80d8ff1a';
+    g.fill();
+    g.restore();
+  }
+
+  // Clone Spirit
+  if (clone) {
+    const cx = px - Math.cos(ang) * 18;
+    const cy = ey - Math.sin(ang) * 18;
+    eng.dspr(sil(eng.S.pIdle[cIdx], '#00e5ff'), cx, cy, 0, 0.55, 0, 0.9);
+  }
+
+  // Tadpole Guardians
+  for (let f = 0; f < (fam || 0); f++) {
+    const fa = eng.TT * 3.8 + f * 3.14;
+    const fx = px + Math.cos(fa) * 24;
+    const fy = ey - 4 + Math.sin(fa) * 16;
+    g.drawImage(eng.S.items[11], fx - 8, fy - 8, 16, 16);
+  }
+
+  // Apex Crown
+  if (stage === 2 || its.includes(17) || eng.achData.win) {
+    g.drawImage(
+      eng.S.crownSm,
+      px - eng.S.crownSm.width / 2,
+      ey - 24 + Math.sin(eng.TT * 6) * 1.5
+    );
+  }
+}
+
+export function drawMenuDiorama(eng: GameEngine) {
+  const g = eng.ctx;
+  const t = eng.TT;
+
+  // Deep bioluminescent swamp night gradient
+  const gr = g.createLinearGradient(0, 0, 0, H);
+  gr.addColorStop(0, '#07140d');
+  gr.addColorStop(0.5, '#0b2116');
+  gr.addColorStop(1, '#040c08');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, W, H);
+
+  // Submerged water tiles & ripples
+  for (let i = 0; i < 15; i++) {
+    for (let j = 0; j < 10; j++) {
+      g.fillStyle = (i + j) % 2 ? '#0a1c12' : '#0d2216';
+      g.fillRect(i * 32, j * 32, 32, 32);
+      if ((i * 7 + j * 13) % 5 === 0) {
+        const rx = i * 32 + 16;
+        const ry = j * 32 + 16;
+        const r = 6 + Math.sin(t * 2.5 + i + j) * 3;
+        g.strokeStyle = '#1b432c';
+        g.lineWidth = 1;
+        g.beginPath();
+        g.ellipse(rx, ry, r, r * 0.55, 0, 0, 7);
+        g.stroke();
+      }
+    }
+  }
+
+  // Ancient swamp stone pillars in background
+  const obSpr = eng.S.obs?.[0];
+  if (obSpr) {
+    [[42, 48], [412, 52], [36, 250], [418, 246]].forEach(([px, py]) => {
+      g.fillStyle = '#0008';
+      g.fillRect(px, py + 22, 28, 8);
+      g.drawImage(obSpr, px, py, 28, 24);
+    });
+  }
+
+  // Drifting lilypads with hopping frogs & combat showcase
+  for (let i = 0; i < 6; i++) {
+    const baseAng = t * 0.35 + (i * Math.PI * 2) / 6;
+    const lx = 240 + Math.cos(baseAng) * 165;
+    const ly = 165 + Math.sin(baseAng) * 95;
+
+    // Lilypad shadow & pad
+    g.fillStyle = '#040a06';
+    g.beginPath();
+    g.ellipse(lx, ly + 4, 20, 12, 0, 0, 7);
+    g.fill();
+
+    g.fillStyle = '#1b4d29';
+    g.beginPath();
+    g.ellipse(lx, ly, 19, 11, 0, 0.2, 6.0);
+    g.lineTo(lx, ly);
+    g.fill();
+    g.strokeStyle = '#43a047';
+    g.lineWidth = 1.2;
+    g.stroke();
+
+    // Frog hopping on pad with cute blink & croak puff
+    const idx = i % CH.length;
+    const isPuff = Math.sin(t * 5 + i * 2) > 0.86;
+    const isBlink = !isPuff && ((t * 1.4 + i * 0.8) % 3.2) > 2.85;
+    const fSpr = isPuff
+      ? eng.S.pPuff[idx]
+      : isBlink && eng.S.pBlink
+      ? eng.S.pBlink[idx]
+      : eng.S.pIdle[idx];
+    const hopPhase = (t * 3.4 + i * 1.1) % (Math.PI * 2);
+    const hopZ = Math.max(0, Math.sin(hopPhase)) * 9;
+    const squash = Math.cos(hopPhase) * 0.11;
+    eng.dspr(fSpr, lx, ly - 2, squash, 0.95, 0, 1.0, hopZ);
+  }
+
+  // Glowing bioluminescent fireflies
+  g.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 22; i++) {
+    const fx = (i * 83 + Math.sin(t * 0.9 + i) * 55 + W) % W;
+    const fy = (i * 59 + Math.cos(t * 1.1 + i * 2) * 45 + H) % H;
+    const col = i % 3 === 0 ? '#00e5ff' : i % 2 ? '#76ff03' : '#ffd54f';
+    g.globalAlpha = 0.4 + Math.sin(t * 4 + i) * 0.3;
+    g.drawImage(glow(col), fx - 16, fy - 16, 32, 32);
+    g.fillStyle = '#fff';
+    g.fillRect(fx - 1, fy - 1, 2, 2);
+  }
+  g.globalCompositeOperation = 'source-over';
+  g.globalAlpha = 1;
+  g.drawImage(eng.VIG, 0, 0);
+}
+
+export function buildCampBgCanvas(eng: GameEngine): HTMLCanvasElement {
+  if (eng.CAMP_BG) return eng.CAMP_BG;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const x = c.getContext('2d')!;
+  x.imageSmoothingEnabled = false;
+
+  // Base dark swamp grass tiles (Forager style rich checkerboard)
+  for (let i = 0; i < 15; i++) {
+    for (let j = 0; j < 10; j++) {
+      const tx = i * 32;
+      const ty = j * 32;
+      x.fillStyle = (i + j) % 2 ? '#152b1b' : '#183220';
+      x.fillRect(tx, ty, 32, 32);
+      // Subtle pixel grass blades & pebbles
+      const h = (i * 23 + j * 41) % 7;
+      if (h < 3) {
+        x.fillStyle = '#204229';
+        x.fillRect(tx + 6 + h * 6, ty + 8 + h * 5, 2, 4);
+        x.fillRect(tx + 9 + h * 6, ty + 6 + h * 5, 2, 5);
+      } else if (h === 4) {
+        x.fillStyle = '#0e1f13';
+        x.fillRect(tx + 18, ty + 20, 4, 3);
+      }
+    }
+  }
+
+  // 2.5D Outer Stone Sanctuary Border Wall
+  x.fillStyle = '#0d1a11';
+  x.fillRect(0, 0, W, 24);
+  x.fillRect(0, H - 14, W, 14);
+  x.fillRect(0, 0, 16, H);
+  x.fillRect(W - 16, 0, 16, H);
+  for (let i = 16; i < W - 16; i += 16) {
+    x.fillStyle = (i / 16) % 2 ? '#1c3323' : '#15261a';
+    x.fillRect(i + 1, 2, 14, 10);
+    x.fillStyle = '#0f1d14';
+    x.fillRect(i + 1, 13, 14, 9);
+  }
+
+  // Central Cobblestone & Dirt Campfire Clearing
+  x.fillStyle = '#241d15';
+  x.beginPath();
+  x.ellipse(240, 176, 112, 68, 0, 0, 7);
+  x.fill();
+  x.fillStyle = '#30271c';
+  x.beginPath();
+  x.ellipse(240, 176, 92, 54, 0, 0, 7);
+  x.fill();
+  // Stone ring bricks around clearing
+  for (let a = 0; a < 24; a++) {
+    const ang = (a / 24) * Math.PI * 2;
+    const sx = 240 + Math.cos(ang) * 108;
+    const sy = 176 + Math.sin(ang) * 65;
+    x.fillStyle = a % 2 ? '#37474f' : '#263238';
+    x.fillRect(sx - 4, sy - 3, 8, 6);
+  }
+
+  // Path leading North to the Dungeon Portal
+  for (let py = 56; py < 118; py += 14) {
+    x.fillStyle = '#2d3b32';
+    x.fillRect(222, py, 36, 10);
+    x.fillStyle = '#455a64';
+    x.fillRect(224, py + 1, 32, 7);
+  }
+
+  // Shaman's Bioluminescent Pool (Bottom Left)
+  x.fillStyle = '#07171c';
+  x.beginPath();
+  x.ellipse(92, 238, 46, 28, 0, 0, 7);
+  x.fill();
+  x.fillStyle = '#0d2b36';
+  x.beginPath();
+  x.ellipse(92, 238, 40, 23, 0, 0, 7);
+  x.fill();
+  x.strokeStyle = '#00e5ff';
+  x.lineWidth = 1.5;
+  x.beginPath();
+  x.ellipse(92, 238, 36, 19, 0, 0, 7);
+  x.stroke();
+
+  // Wooden Training Arena Pad (Top Left for Dummy)
+  x.fillStyle = '#2b1d12';
+  x.fillRect(52, 126, 72, 46);
+  x.strokeStyle = '#5d4037';
+  x.lineWidth = 2;
+  x.strokeRect(52, 126, 72, 46);
+
+  return (eng.CAMP_BG = c);
+}
+
+export function buildRoomBgCanvas(
+  eng: GameEngine,
+  bIdx: number,
+  cell: DungeonCell,
+  key: string
+): HTMLCanvasElement {
+  if (eng.BG_CACHE[key]) return eng.BG_CACHE[key];
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const x = c.getContext('2d')!;
+  x.imageSmoothingEnabled = false;
+  const t = TH[bIdx] || TH[0];
+
+  // 1. Outer Chiseled Stone Wall (Enter the Gungeon style 2.5D border)
+  x.fillStyle = '#060c08';
+  x.fillRect(0, 0, W, H);
+  for (let i = 0; i < W; i += 16) {
+    for (let j = 0; j < H; j += 8) {
+      if (i < M || i >= W - M || j < M || j >= H - M) {
+        const isLight = (i / 16 + j / 8) % 2 === 0;
+        x.fillStyle = isLight ? t.wl : t.w;
+        x.fillRect(i + 1, j + 1, 14, 6);
+        if (isLight) {
+          x.fillStyle = '#ffffff0d';
+          x.fillRect(i + 1, j + 1, 14, 2);
+        }
+      }
+    }
+  }
+
+  // 2. 2.5D North Wall Front Cliff Face (14px relief above floor)
+  x.fillStyle = '#070f0a';
+  x.fillRect(M, M - 14, W - M * 2, 14);
+  for (let i = M; i < W - M; i += 16) {
+    x.fillStyle = t.wl;
+    x.fillRect(i + 1, M - 13, 14, 6);
+    x.fillStyle = t.w;
+    x.fillRect(i + 1, M - 6, 14, 5);
+    // Hanging moss / vines
+    if ((i * 7 + bIdx) % 3 === 0) {
+      x.fillStyle = t.a + '66';
+      x.fillRect(i + 5, M - 12, 3, 9);
+      x.fillRect(i + 8, M - 10, 2, 6);
+    }
+  }
+
+  // 3. Checkered 32x32 Dungeon Stone Floor with Cracks, Moss & Pebbles
+  for (let i = 0; i < 13; i++) {
+    for (let j = 0; j < 8; j++) {
+      const tx = M + i * 32;
+      const ty = M + j * 32;
+      x.fillStyle = (i + j) % 2 ? t.f1 : t.f2;
+      x.fillRect(tx, ty, 32, 32);
+
+      // Beveled tile edge
+      x.fillStyle = '#ffffff08';
+      x.fillRect(tx, ty, 31, 1);
+      x.fillRect(tx, ty, 1, 31);
+      x.fillStyle = '#00000028';
+      x.fillRect(tx + 31, ty, 1, 32);
+      x.fillRect(tx, ty + 31, 32, 1);
+
+      const h = (i * 19 + j * 37 + bIdx * 11) % 15;
+      if (h < 3) {
+        // Stone crack
+        x.fillStyle = '#00000044';
+        x.fillRect(tx + 7 + h * 4, ty + 9 + h * 3, 5, 2);
+        x.fillRect(tx + 10 + h * 4, ty + 11 + h * 3, 2, 4);
+      } else if (h === 4 || h === 9) {
+        // Moss / bioluminescent floor speck
+        x.fillStyle = t.a + '33';
+        x.fillRect(tx + 12, ty + 14, 4, 3);
+        x.fillRect(tx + 15, ty + 12, 3, 4);
+      }
+    }
+  }
+
+  // 4. Recessed 2.5D Water / Slime Pools
+  const hz = eng.hazards();
+  for (const w of hz.water) {
+    x.fillStyle = '#050c09';
+    x.beginPath();
+    x.ellipse(w.x, w.y, w.rx + 4, w.ry + 4, 0, 0, 7);
+    x.fill();
+    x.fillStyle = t.hz;
+    x.beginPath();
+    x.ellipse(w.x, w.y, w.rx, w.ry, 0, 0, 7);
+    x.fill();
+    x.strokeStyle = t.a;
+    x.globalAlpha = 0.4;
+    x.lineWidth = 1.5;
+    x.beginPath();
+    x.ellipse(w.x, w.y, w.rx - 3, w.ry - 3, 0, 0, 7);
+    x.stroke();
+    x.globalAlpha = 1;
+  }
+
+  // 5. Ambient Occlusion Wall Shadows
+  const sgN = x.createLinearGradient(0, M, 0, M + 20);
+  sgN.addColorStop(0, '#000000aa');
+  sgN.addColorStop(1, '#00000000');
+  x.fillStyle = sgN;
+  x.fillRect(M, M, W - M * 2, 20);
+
+  // 6. Crisp Inner Arena Frame
+  x.strokeStyle = '#050a07';
+  x.lineWidth = 4;
+  x.strokeRect(M - 2, M - 2, W - M * 2 + 4, H - M * 2 + 4);
+  x.strokeStyle = t.a;
+  x.lineWidth = 1.2;
+  x.strokeRect(M - 1, M - 1, W - M * 2 + 2, H - M * 2 + 2);
+
+  return (eng.BG_CACHE[key] = c);
+}
+
+export function drawDoor4(
+  eng: GameEngine,
+  dir: 'N' | 'S' | 'W' | 'E',
+  cell: DungeonCell
+) {
+  if (!cell || !cell.doors[dir]) return;
+  const g = eng.ctx;
+  const o = eng.wd.clear;
+  let nx = cell.gx;
+  let ny = cell.gy;
+  if (dir === 'N') ny--;
+  else if (dir === 'S') ny++;
+  else if (dir === 'W') nx--;
+  else if (dir === 'E') nx++;
+
+  const nb = eng.wd.grid?.[ny]?.[nx];
+  const isBoss = nb?.type === 'boss';
+  const isLocked = nb?.locked;
+  const isShop = nb?.type === 'shop';
+  const col = isBoss
+    ? '#ff1744'
+    : isLocked
+    ? '#ffd54f'
+    : isShop
+    ? '#00e5ff'
+    : o
+    ? '#69f0ae'
+    : '#ff5252';
+
+  if (dir === 'N' || dir === 'S') {
+    const dy = dir === 'N' ? 0 : H - M;
+    // Stone doorframe pillars
+    g.fillStyle = '#263238';
+    g.fillRect(214, dy, 52, M);
+    g.fillStyle = o ? '#040806' : '#241612';
+    g.fillRect(220, dy, 40, M);
+    // Glowing threshold bar
+    g.fillStyle = col;
+    g.fillRect(220, dir === 'N' ? M - 3 : H - M, 40, 3);
+    if (!o) {
+      // Iron portcullis bars when locked in combat
+      g.fillStyle = '#546e7a';
+      for (let i = 0; i < 4; i++) g.fillRect(226 + i * 8, dy + 2, 3, M - 4);
+    }
+    if (isBoss) g.drawImage(eng.S.skull, 240 - eng.S.skull.width / 2, dy + 8);
+    else if (isLocked) g.drawImage(eng.S.lock, 240 - eng.S.lock.width / 2, dy + 8);
+  } else {
+    const dx = dir === 'W' ? 0 : W - M;
+    g.fillStyle = '#263238';
+    g.fillRect(dx, 134, M, 52);
+    g.fillStyle = o ? '#040806' : '#241612';
+    g.fillRect(dx, 140, M, 40);
+    g.fillStyle = col;
+    g.fillRect(dir === 'W' ? M - 3 : W - M, 140, 3, 40);
+    if (!o) {
+      g.fillStyle = '#546e7a';
+      for (let i = 0; i < 4; i++) g.fillRect(dx + 2, 146 + i * 8, M - 4, 3);
+    }
+    if (isBoss) g.drawImage(eng.S.skull, dx + 8, 160 - eng.S.skull.height / 2);
+    else if (isLocked) g.drawImage(eng.S.lock, dx + 8, 160 - eng.S.lock.height / 2);
+  }
+}
+
+export function renderCampScene(eng: GameEngine) {
+  const g = eng.ctx;
+  g.drawImage(buildCampBgCanvas(eng), 0, 0);
+
+  // 1. Runic Dungeon Portal at Top (240, 48)
+  const px = eng.camp.portal.x;
+  const py = eng.camp.portal.y;
+  g.fillStyle = '#1c262b';
+  g.beginPath();
+  g.ellipse(px, py, 38, 22, 0, 0, 7);
+  g.fill();
+  g.strokeStyle = '#69f0ae';
+  g.lineWidth = 2.5;
+  g.beginPath();
+  g.ellipse(
+    px,
+    py,
+    30 + Math.sin(eng.TT * 6) * 2.5,
+    15 + Math.cos(eng.TT * 6) * 1.5,
+    0,
+    0,
+    7
+  );
+  g.stroke();
+
+  g.globalCompositeOperation = 'lighter';
+  g.globalAlpha = 0.7 + Math.sin(eng.TT * 5) * 0.15;
+  g.drawImage(glow('#00e676'), px - 42, py - 42, 84, 84);
+  g.globalCompositeOperation = 'source-over';
+  g.globalAlpha = 1;
+
+  drawText(g, 'PORTAL DA MASMORRA', px, py - 24, '#69f0ae', 'center', 6.5);
+  drawText(g, 'PISE PARA INICIAR A RUN', px, py + 29, '#b9f6ca', 'center', 5.5);
+
+  // 2. Biome Selector Sign (382, 118)
+  const sx = eng.camp.sign.x;
+  const sy = eng.camp.sign.y;
+  eng.dspr(eng.S.sign, sx, sy, 0, 1, 0, 1.1);
+  drawText(
+    g,
+    `BIOMA: ${TH[eng.camp.sign.bIdx].nm.toUpperCase()}`,
+    sx,
+    sy - 22,
+    '#ffd54f',
+    'center',
+    5.5
+  );
+  const intK = formatKeyLabel(eng.CFG?.binds?.interact || DEFAULT_BINDS.interact);
+  if (Math.hypot(eng.me.x - sx, eng.me.y - sy) < 32) {
+    drawText(g, `[${intK}] MUDAR BIOMA`, sx, sy + 20, '#69f0ae', 'center', 5.5);
+  }
+
+  // 3. Training Dummy & Real-Time DPS Meter (88, 152)
+  const dm = eng.camp.dummy;
+  eng.dspr(
+    eng.S.dummy,
+    dm.x,
+    dm.y,
+    dm.j + Math.sin(eng.TT * 4) * 0.03,
+    1,
+    dm.fl > 0 ? 1 : 0,
+    1.2
+  );
+  drawText(g, 'ESPANTALHO DE TREINO', dm.x, dm.y - 30, '#ffe082', 'center', 5.5);
+  drawText(
+    g,
+    `DPS: ${dm.dps.toFixed(1)}/s`,
+    dm.x,
+    dm.y - 19,
+    dm.dps > 0 ? '#ff5252' : '#b0bec5',
+    'center',
+    6.5
+  );
+
+  // 4. Old Grandpa Shaman Frog with Wooden Staff & Bubbling Magic Cauldron (92, 236)
+  const shx = eng.camp.shaman.x;
+  const shy = eng.camp.shaman.y;
+  g.globalCompositeOperation = 'lighter';
+  g.globalAlpha = 0.68 + Math.sin(eng.TT * 6) * 0.16;
+  g.drawImage(glow('#00e5ff'), shx - 36, shy - 36, 72, 72);
+  // Subtle glow around the crystal orb at the top of the old frog's wooden staff
+  g.globalAlpha = 0.55 + Math.sin(eng.TT * 8) * 0.2;
+  g.drawImage(glow('#84ffff'), shx - 34, shy - 46, 32, 32);
+  g.globalCompositeOperation = 'source-over';
+  g.globalAlpha = 1;
+
+  // Animated 2-frame Wise Grandpa Shaman Frog with Gnarled Staff
+  const shFrame = ((eng.TT * 3.2) | 0) % 2 === 1 && eng.S.shaman2 ? eng.S.shaman2 : eng.S.shaman;
+  const shSquash = Math.sin(eng.TT * 5.2) * 0.06;
+  eng.dspr(shFrame, shx - 6, shy, shSquash, 1, 0, 1.15);
+
+  // Bubbling Magic Cauldron beside the Shaman
+  const cx = shx + 19;
+  const cy = shy + 2;
+  g.fillStyle = '#0d1f26';
+  g.fillRect(cx - 9, cy - 6, 18, 12);
+  g.strokeStyle = '#00acc1';
+  g.lineWidth = 1.5;
+  g.strokeRect(cx - 9, cy - 6, 18, 12);
+  g.fillStyle = '#00e5ff';
+  g.fillRect(cx - 7, cy - 5, 14, 4);
+  // Bubbling cyan potion froth
+  const bOff = Math.sin(eng.TT * 9) * 2;
+  g.fillStyle = '#84ffff';
+  g.fillRect(cx - 4 + bOff, cy - 8, 3, 3);
+  g.fillRect(cx + 2 - bOff, cy - 9, 2.5, 2.5);
+
+  drawText(g, 'VELHO SAPO XAMÃ', shx, shy - 34, '#00e5ff', 'center', 6);
+  drawText(g, `LARVAS: ${eng.achStats.larvae}`, shx, shy - 23, '#ffd54f', 'center', 5.5);
+  if (Math.hypot(eng.me.x - shx, eng.me.y - shy) < 36) {
+    drawText(g, `[${intK}] CALDEIRÃO DE UPGRADES`, shx, shy + 22, '#84ffff', 'center', 6);
+  }
+
+  // 5. Forager-Style Interactive Camp Crystal & Flora Nodes
+  for (const cn of eng.campNodes) {
+    if (cn.hp > 0) {
+      g.globalCompositeOperation = 'lighter';
+      g.globalAlpha = 0.45 + Math.sin(eng.TT * 5 + cn.x) * 0.15;
+      g.drawImage(glow(cn.col), cn.x - 18, cn.y - 18, 36, 36);
+      g.globalCompositeOperation = 'source-over';
+      g.globalAlpha = 1;
+      eng.dspr(
+        eng.S.crystal,
+        cn.x,
+        cn.y,
+        cn.j + Math.sin(eng.TT * 4 + cn.x) * 0.04,
+        1,
+        cn.fl > 0 ? 1 : 0,
+        1.15
+      );
+    }
+  }
+
+  // 6. Y-Sorted Camp Entities (Logs + Resting Frogs, Campfire, Co-op Partner, Player)
+  const L: Array<[number, () => void]> = [];
+
+  for (const fl of eng.FLORA) {
+    L.push([
+      fl.y,
+      () => {
+        const dist = Math.hypot(eng.me.x - fl.x, eng.me.y - fl.y);
+        const bend = dist < 22 ? ((fl.x - eng.me.x) / 22) * 0.35 : Math.sin(eng.TT * 3 + fl.x) * 0.08;
+        const fSpr = eng.S.flora?.[fl.t];
+        if (fSpr) {
+          g.save();
+          g.translate(fl.x, fl.y);
+          g.rotate(bend);
+          g.drawImage(fSpr, -fSpr.width / 2, -fSpr.height);
+          g.restore();
+        }
+      },
+    ]);
+  }
+
+  for (const lg of eng.camp.logs) {
+    L.push([
+      lg.y,
+      () => {
+        g.drawImage(eng.S.log, lg.x - eng.S.log.width / 2, lg.y - eng.S.log.height / 2 + 6);
+        if (eng.me.ch !== lg.c) {
+          const un = eng.isCharUnlocked(lg.c);
+          const isCroaking = Math.sin(eng.TT * 3.5 + lg.c * 2.1) > 0.9;
+          const isBlinking = !isCroaking && ((eng.TT * 1.4 + lg.c * 0.9) % 3.2) > 2.82;
+          const fSpr = isCroaking
+            ? eng.S.pPuff[lg.c]
+            : isBlinking && eng.S.pBlink
+            ? eng.S.pBlink[lg.c]
+            : eng.S.pIdle[lg.c];
+          const breathe = Math.sin(eng.TT * 5.8 + lg.c) * 0.085;
+          const hop = Math.max(0, Math.sin(eng.TT * 2.6 + lg.c * 1.7) - 0.68) * 14;
+          const flipX = lg.x > 240 ? -1 : 1;
+          eng.dspr(fSpr, lg.x, lg.y - 4, breathe, un ? 1 : 0.78, 0, 1, hop, '', flipX);
+          if (!un) g.drawImage(eng.S.lock, lg.x + 8, lg.y - 6, 10, 10);
+          if (Math.hypot(eng.me.x - lg.x, eng.me.y - lg.y) < 28) {
+            drawText(
+              g,
+              un ? `[${intK}] ${CH[lg.c].n.toUpperCase()} (${WP[CH[lg.c].wp].nm})` : `BLOQUEADO: ${CH[lg.c].reqTxt}`,
+              lg.x,
+              lg.y - 26,
+              '#ffd54f',
+              'center',
+              5.5
+            );
+          }
+        }
+      },
+    ]);
+  }
+
+  // Central Crackling Campfire (240, 168)
+  L.push([
+    168,
+    () => {
+      const cf = eng.S.campfire[((eng.TT * 8) | 0) % 2];
+      g.globalCompositeOperation = 'lighter';
+      g.globalAlpha = 0.78 + Math.sin(eng.TT * 11) * 0.14;
+      g.drawImage(glow('#ff9100'), 240 - 64, 168 - 64, 128, 128);
+      g.globalAlpha = 0.45 + Math.cos(eng.TT * 8) * 0.1;
+      g.drawImage(glow('#ffd54f'), 240 - 36, 168 - 36, 72, 72);
+      g.globalCompositeOperation = 'source-over';
+      g.globalAlpha = 1;
+      eng.dspr(cf, 240, 168, Math.sin(eng.TT * 12) * 0.04, 1, 0, 1.2);
+    },
+  ]);
+
+  // Co-op Partner Bot / Player in Camp
+  if (eng.botPartner && eng.botPartner.active) {
+    const bp = eng.botPartner;
+    L.push([
+      bp.y,
+      () => {
+        const bSpr = bp.puff > 0 ? eng.S.pPuff[bp.ch] : bp.wf ? eng.S.pWalk[bp.ch] : eng.S.pIdle[bp.ch];
+        eng.dspr(bSpr, bp.x, bp.y, bp.j, 1, 0, 1, bp.z, '#00e5ff');
+        drawMouthAttackAnim(eng, bp.x, bp.y, bp.z, bp.ang, WP[bp.w] ? bp.w : 0, bp.puff);
+        drawText(g, `PARCEIRO: ${CH[bp.ch].n}`, bp.x, bp.y - 28 - bp.z, '#80cbc4', 'center', 5.5);
+      },
+    ]);
+  }
+
+  // Player in Camp
+  L.push([
+    eng.me.y,
+    () => {
+      for (const gh of eng.GHOSTS) {
+        eng.dspr(
+          sil(eng.S.pWalk[eng.me.ch], CH[eng.me.ch].a),
+          gh.x,
+          gh.y,
+          0,
+          gh.l * 2.2,
+          0,
+          1,
+          gh.z
+        );
+      }
+      const isBlink = !eng.me.wf && eng.me.puff <= 0 && ((eng.TT * 1.5) % 3.4) > 3.05;
+      const mySpr = getMutatedFrogSprite(
+        eng,
+        eng.me.ch,
+        eng.me.wf,
+        eng.me.puff,
+        isBlink,
+        eng.me.its.length,
+        Object.keys(eng.me.syn).length
+      );
+      const breathe = eng.me.wf ? Math.sin(eng.TT * 16) * 0.08 : Math.sin(eng.TT * 6.2) * 0.075;
+      const walkHop = eng.me.wf && eng.me.z <= 0 ? Math.abs(Math.sin(eng.TT * 14)) * 3.5 : 0;
+      const flipX = Math.cos(eng.me.ang) < 0 ? -1 : 1;
+      eng.dspr(
+        mySpr,
+        eng.me.x,
+        eng.me.y,
+        eng.me.j + breathe,
+        1,
+        0,
+        1,
+        eng.me.z + walkHop,
+        '',
+        flipX
+      );
+      drawFrogExtras(
+        eng,
+        eng.me.x,
+        eng.me.y,
+        eng.me.z + walkHop,
+        eng.me.ang,
+        eng.me.w,
+        eng.me.puff,
+        eng.me.fly,
+        eng.me.sh,
+        eng.me.fam,
+        eng.me.clone,
+        eng.me.its.length,
+        eng.me.ch,
+        Object.keys(eng.me.syn).length,
+        eng.me.its
+      );
+    },
+  ]);
+
+  L.sort((a, b) => a[0] - b[0]);
+  for (const item of L) item[1]();
+
+  // Casings, Beams, Bullets, Particles
+  drawCasingsAndBeams(eng);
+  for (const b of eng.myB) eng.drawBullet(b);
+  eng.drawParticles();
+  g.drawImage(eng.VIG, 0, 0);
+  eng.drawCrosshair();
+
+  // Top & Bottom Pixel Banners
+  drawText(
+    g,
+    `SANTUÁRIO DA FOGUEIRA · [${intK}] TROCAR SAPO / XAMÃ · PISE NO PORTAL P/ INICIAR`,
+    240,
+    14,
+    '#ffd54f',
+    'center',
+    5.8
+  );
+  drawText(
+    g,
+    `SAPO: ${CH[eng.me.ch].n.toUpperCase()} · HABILIDADE: ${WP[eng.me.w].nm.toUpperCase()} · LARVAS: ${eng.achStats.larvae} · MOSCAS: ${eng.me.gold}`,
+    240,
+    H - 7,
+    '#a5d6a7',
+    'center',
+    5.5
+  );
+}
+
+export function drawCasingsAndBeams(eng: GameEngine) {
+  const g = eng.ctx;
+  for (const c of eng.CASINGS) {
+    g.save();
+    g.globalAlpha = clamp(c.l, 0, 0.85);
+    g.fillStyle = c.col;
+    g.fillRect(c.x - 1.5, c.y - c.z - 1, 3, 2);
+    g.restore();
+  }
+  for (const arc of eng.ARCS) {
+    g.strokeStyle = '#00e5ff';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(arc.x1, arc.y1);
+    g.lineTo(
+      (arc.x1 + arc.x2) / 2 + (Math.random() - 0.5) * 14,
+      (arc.y1 + arc.y2) / 2 + (Math.random() - 0.5) * 14
+    );
+    g.lineTo(arc.x2, arc.y2);
+    g.stroke();
+  }
+  for (const bm of eng.BEAMS) {
+    const ex = bm.x + Math.cos(bm.a) * 480;
+    const ey = bm.y + Math.sin(bm.a) * 480;
+    const al = bm.l / bm.m;
+    g.save();
+    g.globalAlpha = al;
+    g.lineCap = 'round';
+    g.strokeStyle = bm.col;
+    g.lineWidth = bm.w * 1.8;
+    g.beginPath();
+    g.moveTo(bm.x, bm.y);
+    g.lineTo(ex, ey);
+    g.stroke();
+    g.strokeStyle = '#fff';
+    g.lineWidth = bm.w * 0.65;
+    g.beginPath();
+    g.moveTo(bm.x, bm.y);
+    g.lineTo(ex, ey);
+    g.stroke();
+    g.restore();
+  }
+}
+
+export function renderPlayScene(eng: GameEngine) {
+  const g = eng.ctx;
+  const cell = eng.curCell();
+  if (!cell) return;
+  const th = TH[eng.wd.bIdx] || TH[0];
+
+  // 1. Cached 2.5D Room Architecture
+  g.drawImage(buildRoomBgCanvas(eng, eng.wd.bIdx, cell, eng.rmKey()), 0, 0);
+
+  // 2. Animated Water Ripples & Spikes
+  const hz = eng.hazards();
+  for (const w of hz.water) {
+    g.strokeStyle = th.a;
+    g.globalAlpha = 0.25 + Math.sin(eng.TT * 4) * 0.08;
+    g.lineWidth = 1.2;
+    g.beginPath();
+    g.ellipse(
+      w.x,
+      w.y,
+      w.rx * (0.7 + Math.sin(eng.TT * 2) * 0.1),
+      w.ry * (0.7 + Math.cos(eng.TT * 2) * 0.1),
+      0,
+      0,
+      7
+    );
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+
+  const isUp = eng.spikesUp();
+  const isWrn = eng.spikesWarn();
+  for (const spk of hz.spikes) {
+    if (isWrn) {
+      g.fillStyle = '#ff174455';
+      g.fillRect(spk.x - 12, spk.y - 12, 24, 24);
+    }
+    const spSpr = eng.S.spike[isUp ? 1 : 0];
+    g.drawImage(spSpr, spk.x - spSpr.width / 2, spk.y - spSpr.height / 2);
+  }
+
+  // 3. Floor Decals (Blood / Slime Splatters) & Acid Pools
+  for (const d of eng.DC) {
+    g.globalAlpha = 0.45;
+    g.fillStyle = d.c;
+    g.beginPath();
+    g.ellipse(d.x, d.y, d.r, d.r * 0.55, 0, 0, 7);
+    g.fill();
+  }
+  for (const pl of eng.POOLS) {
+    g.globalAlpha = clamp(pl.l, 0.22, 0.68);
+    g.fillStyle = pl.c;
+    g.beginPath();
+    g.ellipse(
+      pl.x,
+      pl.y,
+      pl.r + Math.sin(eng.TT * 10) * 2,
+      (pl.r + Math.cos(eng.TT * 10) * 2) * 0.6,
+      0,
+      0,
+      7
+    );
+    g.fill();
+  }
+  g.globalAlpha = 1;
+
+  // 4. Ornate 2.5D Doors
+  drawDoor4(eng, 'N', cell);
+  drawDoor4(eng, 'S', cell);
+  drawDoor4(eng, 'W', cell);
+  drawDoor4(eng, 'E', cell);
+
+  // 5. Trapdoor to Next Biome
+  if (eng.wd.trapdoor) {
+    g.fillStyle = '#050a07';
+    g.beginPath();
+    g.arc(240, 135, 19, 0, 7);
+    g.fill();
+    g.strokeStyle = '#ffd54f';
+    g.lineWidth = 2.5;
+    g.beginPath();
+    g.arc(240, 135, 19 + Math.sin(eng.TT * 6) * 1.5, 0, 7);
+    g.stroke();
+    drawText(g, 'ALÇAPÃO ABERTO · PISE PARA AVANÇAR!', 240, 108, '#69f0ae', 'center', 6);
+  }
+
+  // 6. Challenge Totem (Risk / Reward Elite Wave)
+  if (cell.type === 'combat' && cell.totem) {
+    const tm = cell.totem;
+    eng.dspr(
+      eng.S.totem,
+      tm.x,
+      tm.y,
+      Math.sin(eng.TT * 5) * (tm.state === 1 ? 0.08 : 0),
+      1,
+      tm.state === 1 ? 1 : 0,
+      1.25
+    );
+    const intK = formatKeyLabel(eng.CFG?.binds?.interact || DEFAULT_BINDS.interact);
+    if (tm.state === 0 && eng.wd.clear && Math.hypot(eng.me.x - tm.x, eng.me.y - tm.y) < 32) {
+      drawText(
+        g,
+        `[${intK}] ATIVAR TOTEM DE RISCO (ONDA ELITE = BAÚ + LARVA)`,
+        tm.x,
+        tm.y - 24,
+        '#ff5252',
+        'center',
+        5.5
+      );
+    }
+  }
+
+  // 7. Corner Torches with Flickering Dynamic Glow
+  const tFrame = eng.S.torch[((eng.TT * 8) | 0) % 2];
+  const corners = [
+    [M + 8, M + 8],
+    [W - M - 8, M + 8],
+    [M + 8, H - M - 10],
+    [W - M - 8, H - M - 10],
+  ];
+  g.globalCompositeOperation = 'lighter';
+  for (const [tx, ty] of corners) {
+    g.globalAlpha = 0.28 + Math.sin(eng.TT * 9 + tx) * 0.08;
+    g.drawImage(glow('#ff9100'), tx - 30, ty - 30, 60, 60);
+  }
+  g.globalAlpha = 1;
+  g.globalCompositeOperation = 'source-over';
+  for (const [tx, ty] of corners) {
+    g.drawImage(tFrame, tx - tFrame.width / 2, ty - tFrame.height / 2);
+  }
+
+  const intKey = formatKeyLabel(eng.CFG?.binds?.interact || DEFAULT_BINDS.interact);
+
+  // 8. Shop Merchant & Stone Pedestals
+  if (cell.type === 'shop' && cell.shop) {
+    const mSpr = ((eng.TT * 3.6) | 0) % 2 === 1 && eng.S.merchant2 ? eng.S.merchant2 : eng.S.merchant;
+    eng.dspr(mSpr, 240, 102, Math.sin(eng.TT * 5.5) * 0.08, 1, 0, 1.25);
+    drawText(g, 'SAPO MERCADOR DO BREJO', 240, 70, '#ffd54f', 'center', 6.5);
+
+    cell.shop.forEach((s, idx) => {
+      // Stone pedestal base
+      g.fillStyle = '#37474f';
+      g.fillRect(s.x - 13, s.y + 5, 26, 8);
+      g.fillStyle = '#78909c';
+      g.fillRect(s.x - 15, s.y + 2, 30, 4);
+
+      if (s.sold) {
+        drawText(g, 'ESGOTADO', s.x, s.y - 4, '#78909c', 'center', 5.5);
+        return;
+      }
+
+      const isSoloAnkh = idx === 2 && eng.me.ankh === 0;
+      const price = Math.max(1, Math.round(isSoloAnkh ? 30 : s.cost));
+      const by = Math.sin(eng.TT * 4 + s.x) * 2.5;
+      let ic = eng.S.h;
+      let col = '#ffd54f';
+      let nm = s.nm || 'ITEM';
+      let ds = s.ds || '';
+      let affTag = '';
+
+      if (s.t === 'key') ic = eng.S.key;
+      else if (isSoloAnkh) {
+        ic = eng.S.ankh;
+        col = '#00e676';
+        nm = 'OVA DE RENASCIMENTO';
+        ds = 'Revive 1x com 3 corações';
+      } else if (s.k != null) {
+        ic = eng.S.items[s.k];
+        const rar = RAR_INFO[IT[s.k][2]];
+        col = rar.col;
+        nm = IT[s.k][0];
+        ds = IT[s.k][1];
+        if (CH[eng.me.ch]?.aff?.includes(s.k)) affTag = ' [AFINIDADE]';
+      }
+
+      g.globalCompositeOperation = 'lighter';
+      g.globalAlpha = 0.35;
+      g.drawImage(glow(col), s.x - 18, s.y - 20 + by, 36, 36);
+      g.globalCompositeOperation = 'source-over';
+      g.globalAlpha = 1;
+      g.drawImage(ic, s.x - ic.width / 2, s.y - 18 + by);
+      drawText(g, `${price}$`, s.x, s.y + 23, '#ffd54f', 'center', 6);
+
+      if (Math.hypot(eng.me.x - s.x, eng.me.y - s.y) < 25) {
+        drawText(g, `[${intKey}] ${nm}${affTag}`, s.x, s.y - 29, affTag ? '#00e5ff' : col, 'center', 6);
+        drawText(g, ds, s.x, s.y - 19, '#e8f5e9', 'center', 5.2);
+      }
+    });
+  }
+
+  // 9. Treasure & Co-op Chests
+  for (const chObj of [cell.chest, cell.coopChest]) {
+    if (chObj && (chObj === cell.chest || chObj.spawned)) {
+      const rar = RAR_INFO[IT[chObj.k][2]];
+      const isAff = CH[eng.me.ch]?.aff?.includes(chObj.k);
+      g.globalCompositeOperation = 'lighter';
+      g.globalAlpha = 0.42;
+      g.drawImage(glow(rar.col), chObj.x - 22, chObj.y - 22, 44, 44);
+      g.globalCompositeOperation = 'source-over';
+      g.globalAlpha = 1;
+      const cSpr = eng.S.chest[chObj.open ? 1 : 0];
+      eng.dspr(cSpr, chObj.x, chObj.y, Math.sin(eng.TT * 5) * (chObj.open ? 0 : 0.04), 1, 0, 1.25);
+      if (!chObj.open) {
+        drawText(
+          g,
+          `[${intKey}] ABRIR BAÚ (${rar.nm}${isAff ? ' [AFINIDADE]' : ''})`,
+          chObj.x,
+          chObj.y + 24,
+          isAff ? '#00e5ff' : rar.col,
+          'center',
+          6
+        );
+      }
+    }
+  }
+
+  // 10. Gold Flies, Larvae & Pickups
+  const flySpr = eng.S.flyGold[((eng.TT * 14) | 0) % 2];
+  for (const f of eng.FLIES) {
+    eng.dspr(flySpr, f.x, f.y, 0, 1, 0, 0.95, f.z);
+  }
+  const larvaSpr = ((eng.TT * 6) | 0) % 2 === 1 && eng.S.larva2 ? eng.S.larva2 : eng.S.larva;
+  for (const lv of eng.LARVAE) {
+    g.globalCompositeOperation = 'lighter';
+    g.globalAlpha = 0.45;
+    g.drawImage(glow('#00e5ff'), lv.x - 16, lv.y - 16 - lv.z, 32, 32);
+    g.globalCompositeOperation = 'source-over';
+    g.globalAlpha = 1;
+    eng.dspr(larvaSpr, lv.x, lv.y, Math.sin(eng.TT * 10 + lv.id) * 0.08, 1, 0, 1.05, lv.z);
+  }
+  for (const dr of eng.DROPS) {
+    const by = Math.sin(eng.TT * 6 + dr.id) * 2.5;
+    eng.dspr(dr.t === 'key' ? eng.S.key : eng.S.h, dr.x, dr.y + by, dr.j, 1, 0);
+  }
+
+  // 11. Y-Sorted 2.5D Arena Entities (Pillars, Flora, Props, Enemies, Partner, Player)
+  const L: Array<[number, () => void]> = [];
+  const obSpr = eng.S.obs[th.ob];
+
+  for (const fl of eng.FLORA) {
+    L.push([
+      fl.y,
+      () => {
+        const dist = Math.hypot(eng.me.x - fl.x, eng.me.y - fl.y);
+        const bend = dist < 22 ? ((fl.x - eng.me.x) / 22) * 0.35 : Math.sin(eng.TT * 3 + fl.x) * 0.08;
+        const fSpr = eng.S.flora?.[fl.t];
+        if (fSpr) {
+          g.save();
+          g.translate(fl.x, fl.y);
+          g.rotate(bend);
+          g.drawImage(fSpr, -fSpr.width / 2, -fSpr.height);
+          g.restore();
+        }
+      },
+    ]);
+  }
+
+  for (const k of eng.rocks()) {
+    L.push([
+      k.y + 28,
+      () => {
+        // 2.5D Pillar Drop Shadow & Extruded Front Face
+        g.fillStyle = '#0008';
+        g.fillRect(k.x + 2, k.y + 24, 28, 8);
+        g.fillStyle = '#08100b';
+        g.fillRect(k.x + 2, k.y + 18, 28, 9);
+        g.drawImage(obSpr, k.x + 2, k.y + 2, 28, 24);
+      },
+    ]);
+  }
+
+  for (const pr of eng.PROPS) {
+    if (!pr.dead) {
+      L.push([
+        pr.y + 6,
+        () => {
+          eng.dspr(
+            eng.S[pr.t] || eng.S.barrel,
+            pr.x,
+            pr.y,
+            Math.sin(eng.TT * 3 + pr.id) * 0.02,
+            1,
+            0,
+            1.0
+          );
+        },
+      ]);
+    }
+  }
+
+  for (const e of eng.wd.en) {
+    L.push([
+      e.y,
+      () => {
+        const bo = e.t.startsWith('B');
+        const p2 = bo && e.hp < e.mh * 0.5;
+        const animF = Math.floor(eng.TT * 8 + e.id) % 2 === 1;
+        const s = bo
+          ? p2 && eng.S[e.t + '_2']
+            ? eng.S[e.t + '_2']
+            : animF && eng.S[e.t + '_f2']
+            ? eng.S[e.t + '_f2']
+            : eng.S[e.t]
+          : animF && eng.S[e.t + '_f2']
+          ? eng.S[e.t + '_f2']
+          : eng.S[e.t] || eng.S.g;
+
+        const hop =
+          e.t === 'm' || e.t === 'n' || e.t === 'g' || e.t === 's' || e.t === 'bmb' || e.t === 'B0'
+            ? Math.abs(Math.sin(eng.TT * 6 + e.id)) * 0.14 - 0.04
+            : 0;
+        const idBreathe = Math.sin(eng.TT * 7.5 + e.id) * 0.06;
+        const tel = (e.tel || 0) > 0 && Math.floor(eng.TT * 20) % 2 === 0;
+        const al = e.t === 'gho' ? 0.65 + Math.sin(eng.TT * 5 + e.id) * 0.2 : 1;
+        const sc = e.chmp ? 1.2 : 1.0;
+        const flipX = eng.me.x < e.x ? -1 : 1;
+
+        if (e.chmp || e.chemT > 0) {
+          g.globalCompositeOperation = 'lighter';
+          g.globalAlpha = 0.28 + Math.sin(eng.TT * 8) * 0.08;
+          g.drawImage(glow(e.chemT > 0 ? '#00e5ff' : '#ffd54f'), e.x - 18, e.y - 18, 36, 36);
+          g.globalCompositeOperation = 'source-over';
+          g.globalAlpha = 1;
+        }
+
+        if (e.seg) {
+          for (let i = e.seg.length - 1; i >= 0; i--) {
+            const sg = e.seg[i];
+            eng.dspr(animF ? eng.S.m_f2 : eng.S.m, sg.x, sg.y, 0, 0.9, e.fl > 0 ? 1 : 0);
+          }
+        }
+
+        const fyOff =
+          e.t === 'f' || e.t === 'B1'
+            ? Math.sin(eng.TT * 12 + e.id) * 4 + 6
+            : e.t !== 'plt'
+            ? Math.abs(Math.sin(eng.TT * 7 + e.id)) * 2.5
+            : 0;
+        eng.dspr(
+          s,
+          e.x,
+          e.y,
+          e.j + idBreathe - hop,
+          al,
+          e.fl > 0 || tel ? 1 : 0,
+          sc,
+          fyOff,
+          '',
+          flipX
+        );
+
+        // Telegraph Attack Warning Icon (!)
+        if ((e.tel || 0) > 0) {
+          drawText(g, '!', e.x, e.y - s.height * sc - 6, '#ff1744', 'center', 8);
+        }
+
+        // Mini HP bar on damaged enemies
+        if (!bo && e.hp < e.mh) {
+          g.fillStyle = '#000c';
+          g.fillRect(e.x - 10, e.y - s.height * sc - 5, 20, 3);
+          g.fillStyle = e.chmp ? '#ffd54f' : '#ff5252';
+          g.fillRect(e.x - 9, e.y - s.height * sc - 4, 18 * clamp(e.hp / e.mh, 0, 1), 1.5);
+        }
+
+        if (bo) {
+          const cy = e.y - s.height - 12 + Math.sin(eng.TT * 6) * 2;
+          g.drawImage(eng.S.crown, e.x - eng.S.crown.width / 2, cy);
+        }
+      },
+    ]);
+  }
+
+  // Co-op Partner Bot / Player & Holographic Rescue System (3s Ring)
+  if (eng.botPartner && eng.botPartner.active) {
+    const bp = eng.botPartner;
+    L.push([
+      bp.y,
+      () => {
+        const bSpr = bp.puff > 0 ? eng.S.pPuff[bp.ch] : bp.wf ? eng.S.pWalk[bp.ch] : eng.S.pIdle[bp.ch];
+        if (bp.dead) {
+          // Holographic Revive Ring (3.0s)
+          g.save();
+          g.strokeStyle = '#00e5ff88';
+          g.lineWidth = 2;
+          g.setLineDash([4, 3]);
+          g.beginPath();
+          g.arc(bp.x, bp.y, 34, 0, 7);
+          g.stroke();
+          g.setLineDash([]);
+          if (bp.revP > 0) {
+            g.strokeStyle = '#00e676';
+            g.lineWidth = 3.5;
+            g.beginPath();
+            g.arc(bp.x, bp.y, 34, -1.57, -1.57 + bp.revP * 6.283);
+            g.stroke();
+          }
+          g.restore();
+          drawText(g, 'FIQUE NO ANEL P/ REANIMAR (3s)', bp.x, bp.y + 24, '#00e676', 'center', 5.5);
+          g.drawImage(eng.S.skull, bp.x - eng.S.skull.width / 2, bp.y - 24);
+        }
+        eng.dspr(bSpr, bp.x, bp.y, bp.j, bp.dead ? 0.42 : 1, 0, 1, bp.z, '#00e5ff');
+        if (!bp.dead) {
+          drawMouthAttackAnim(eng, bp.x, bp.y, bp.z, bp.ang, bp.w, bp.puff);
+        }
+      },
+    ]);
+  }
+
+  // Player Frog
+  L.push([
+    eng.me.y,
+    () => {
+      for (const gh of eng.GHOSTS) {
+        eng.dspr(
+          sil(eng.S.pWalk[eng.me.ch], CH[eng.me.ch].a),
+          gh.x,
+          gh.y,
+          0,
+          gh.l * 2.2,
+          0,
+          1,
+          gh.z
+        );
+      }
+
+      if (eng.me.dead && eng.botPartner?.active && !eng.botPartner.dead) {
+        // Player downed: Holographic Revive Ring for Partner to rescue!
+        g.save();
+        g.strokeStyle = '#00e5ff99';
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(eng.me.x, eng.me.y, 34, 0, 7);
+        g.stroke();
+        if (eng.me.revP > 0) {
+          g.strokeStyle = '#00e676';
+          g.lineWidth = 3.5;
+          g.beginPath();
+          g.arc(eng.me.x, eng.me.y, 34, -1.57, -1.57 + eng.me.revP * 6.283);
+          g.stroke();
+        }
+        g.restore();
+        drawText(g, 'PARCEIRO REANIMANDO VOCÊ...', eng.me.x, eng.me.y + 24, '#00e5ff', 'center', 5.5);
+      }
+
+      const isBlink = !eng.me.wf && eng.me.puff <= 0 && ((eng.TT * 1.5) % 3.4) > 3.05;
+      const mySpr = getMutatedFrogSprite(
+        eng,
+        eng.me.ch,
+        eng.me.wf,
+        eng.me.puff,
+        isBlink,
+        eng.me.its.length,
+        Object.keys(eng.me.syn).length
+      );
+      const flyZ = eng.me.z + (eng.me.fly ? Math.sin(eng.TT * 7) * 3.5 + 4 : 0);
+      const walkHop = eng.me.wf && eng.me.z <= 0 ? Math.abs(Math.sin(eng.TT * 14)) * 3.5 : 0;
+      const breathe = eng.me.wf ? Math.sin(eng.TT * 16) * 0.08 : Math.sin(eng.TT * 6.2) * 0.075;
+      const mySc = eng.me.its.length >= 4 || Object.keys(eng.me.syn).length > 0 ? 1.12 : eng.me.its.length >= 2 ? 1.06 : 1;
+      const flipX = Math.cos(eng.me.ang) < 0 ? -1 : 1;
+
+      eng.dspr(
+        mySpr,
+        eng.me.x,
+        eng.me.y,
+        eng.me.j + breathe,
+        eng.me.dead
+          ? 0.42
+          : (eng.me.inv > 0 || eng.me.z > 6) && Math.floor(eng.TT * 18) % 2
+          ? 0.55
+          : 1,
+        eng.fl > 0.6 ? 1 : 0,
+        mySc,
+        flyZ + walkHop,
+        '',
+        flipX
+      );
+      if (!eng.me.dead) {
+        drawFrogExtras(
+          eng,
+          eng.me.x,
+          eng.me.y,
+          flyZ + walkHop,
+          eng.me.ang,
+          eng.me.w,
+          eng.me.puff,
+          eng.me.fly,
+          eng.me.sh,
+          eng.me.fam,
+          eng.me.clone,
+          eng.me.its.length,
+          eng.me.ch,
+          Object.keys(eng.me.syn).length,
+          eng.me.its
+        );
+      } else {
+        g.drawImage(eng.S.skull, eng.me.x - eng.S.skull.width / 2, eng.me.y - 24);
+      }
+    },
+  ]);
+
+  L.sort((a, b) => a[0] - b[0]);
+  for (const item of L) item[1]();
+
+  // 12. Casings, Beams, Projectiles & Particles
+  drawCasingsAndBeams(eng);
+  for (const b of eng.wd.eb) eng.drawBullet(b, true);
+  for (const b of eng.myB.concat(eng.rB)) eng.drawBullet(b, false);
+  eng.drawParticles();
+  g.drawImage(eng.VIG, 0, 0);
+
+  if (eng.fl > 0) {
+    g.fillStyle = `rgba(255, 20, 40, ${eng.fl * 0.26})`;
+    g.fillRect(0, 0, W, H);
+  }
+
+  // 13. Crisp Pixel-Art HUD Overlay
+  renderPlayHUD(eng, cell, th);
+  eng.drawCrosshair();
+
+  if (eng.tr > 0) {
+    g.fillStyle = `rgba(0, 0, 0, ${eng.tr})`;
+    g.fillRect(0, 0, W, H);
+  }
+}
+
+function renderPlayHUD(eng: GameEngine, cell: DungeonCell, th: any) {
+  const g = eng.ctx;
+
+  // Top-left Hearts & Shields
+  for (let i = 0; i < eng.me.mh; i++) {
+    g.drawImage(
+      i < eng.me.hp ? eng.S.h : eng.S.h0,
+      8 + (i % 8) * 15,
+      7 + Math.floor(i / 8) * 13,
+      13,
+      11
+    );
+  }
+  let icX = 8;
+  const rowY = eng.me.mh > 8 ? 34 : 22;
+  if (eng.me.sh > 0) {
+    g.drawImage(eng.S.sh, icX, rowY, 12, 12);
+    icX += 15;
+  }
+  if (eng.me.ankh > 0) {
+    g.drawImage(eng.S.ankh, icX, rowY, 12, 12);
+    icX += 15;
+  }
+
+  // Economy Bar (Gold Flies, Keys, Larvae)
+  const ecoY = rowY + (eng.me.sh > 0 || eng.me.ankh > 0 ? 15 : 2);
+  g.drawImage(eng.S.flyGold[0], 8, ecoY, 12, 10);
+  drawText(g, `${eng.me.gold}`, 23, ecoY + 9, '#ffd54f', 'left', 6.5);
+
+  g.drawImage(eng.S.key, 50, ecoY - 1, 11, 11);
+  drawText(g, `${eng.me.keys}`, 64, ecoY + 9, '#fff59d', 'left', 6.5);
+
+  const hudLarva = Math.floor(eng.TT * 5) % 2 === 1 && eng.S.larva2 ? eng.S.larva2 : eng.S.larva;
+  g.drawImage(hudLarva, 85, ecoY, 12, 10);
+  drawText(g, `${eng.achStats.larvae}`, 100, ecoY + 9, '#00e5ff', 'left', 6.5);
+
+  // Kill Combo Streak Badge
+  if (eng.comboCount >= 2 && eng.comboTimer > 0) {
+    drawText(
+      g,
+      `COMBO ${eng.comboCount}x!`,
+      8,
+      ecoY + 22,
+      eng.comboCount >= 5 ? '#ff4081' : '#76ff03',
+      'left',
+      6.5
+    );
+  }
+
+  // Top Center Biome & Room Title
+  const rmTitle =
+    cell.type === 'boss'
+      ? 'COVIL DO CHEFE'
+      : cell.type === 'shop'
+      ? 'LOJA DO MERCADOR'
+      : cell.type === 'treasure'
+      ? 'SALA DE MUTAÇÃO'
+      : cell.type === 'start'
+      ? 'CLAREIRA INICIAL'
+      : LAYOUT_NMS[cell.lay] || 'ARENA DO PÂNTANO';
+  drawText(
+    g,
+    `${th.nm.toUpperCase()} (${eng.wd.bIdx + 1}/5) · ${rmTitle}`,
+    240,
+    12,
+    '#a5d6a7',
+    'center',
+    5.8
+  );
+
+  // Boss Health Bar
+  const boss = eng.wd.en.find((e) => e.t.startsWith('B'));
+  if (boss) {
+    g.fillStyle = '#050a07ee';
+    g.fillRect(128, 19, 224, 10);
+    g.strokeStyle = '#ffd54f';
+    g.lineWidth = 1;
+    g.strokeRect(128, 19, 224, 10);
+    g.fillStyle = '#ff1744';
+    g.fillRect(130, 21, 220 * clamp(boss.hp / boss.mh, 0, 1), 6);
+    g.drawImage(eng.S.crownSm, 112, 17);
+    drawText(g, BOSS_NAMES[boss.t] || 'CHEFE', 240, 37, '#ffd54f', 'center', 5.8);
+  }
+
+  // 5x5 Minimap (Top Right below buttons)
+  eng.drawMinimap();
+
+  // Bottom Weapon & Mutation Status Bar
+  const w = WP[eng.me.w];
+  const synCnt = Object.keys(eng.me.syn).length;
+  const evoStg = eng.me.its.length >= 5 ? 'APEX' : eng.me.its.length >= 3 ? 'MUTANTE' : 'BASE';
+  drawText(
+    g,
+    `${w.nm.toUpperCase()} · DANO:${eng.me.dm.toFixed(1)} · ESTÁGIO:${evoStg} · PULO-Z:${
+      eng.me.jumpCd > 0 ? 'RECARG.' : 'PRONTO'
+    }${synCnt ? ` · SINERGIAS:${synCnt}` : ''}`,
+    8,
+    H - 6,
+    w.col,
+    'left',
+    5.5
+  );
+
+  // Collected Mutation Icons
+  eng.me.its.slice(-14).forEach((k, idx) => {
+    g.drawImage(eng.S.items[k], 8 + idx * 16, H - 25, 14, 14);
+  });
+
+  // Victory / Game Over Banner
+  if (eng.wd.over || (eng.me.dead && (!eng.botPartner?.active || eng.botPartner.dead))) {
+    g.fillStyle = '#040906ee';
+    g.fillRect(0, 96, W, 114);
+    g.strokeStyle = eng.wd.over ? '#69f0ae' : '#ff5252';
+    g.lineWidth = 2;
+    g.strokeRect(0, 96, W, 114);
+    drawText(
+      g,
+      eng.wd.over ? 'PÂNTANO CONQUISTADO!' : 'FIM DA LINHA, SAPINHO!',
+      240,
+      138,
+      eng.wd.over ? '#69f0ae' : '#ff5252',
+      'center',
+      13
+    );
+    drawText(
+      g,
+      'PRESSIONE [R] PARA NOVA RUN OU VOLTE AO ACAMPAMENTO NO TOPO!',
+      240,
+      168,
+      '#ffd54f',
+      'center',
+      6
+    );
+  }
+}

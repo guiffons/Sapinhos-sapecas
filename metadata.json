@@ -1,0 +1,6 @@
+{
+  "name": "Sapinhos Sapecas: Roguelite Roguelike",
+  "description": "Roguelike de ação 2D com estética de pântano sombrio e neon arcade, mira 360°, pulo esquiva no eixo Z, acampamento com fogueira e seleção de sapos, masmorras procedurais 5x5, física de moscas de ouro e sinergias biológicas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
