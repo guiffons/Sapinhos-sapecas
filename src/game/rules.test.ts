@@ -247,11 +247,16 @@ import {
   FLORA_MATS2,
 } from './constants.ts';
 
-test('getFrogMouthOrigin aligns projectile spawn with the frog mouth and Z elevation', () => {
+test('getFrogMouthOrigin aligns projectile spawn with the frog mouth and stays below eyes when aiming up', () => {
   const originRight = getFrogMouthOrigin(240, 160, 0, 0, 1, 0);
   const originLeft = getFrogMouthOrigin(240, 160, 0, Math.PI, 1, 0);
+  const originUp = getFrogMouthOrigin(240, 160, 0, -Math.PI / 2, 1, 0);
   assert.ok(originRight.x > 240, 'Facing right shifts mouth origin to the right of center');
   assert.ok(originLeft.x < 240, 'Facing left shifts mouth origin to the left of center');
+  assert.ok(
+    originUp.y > 161.5,
+    `Aiming straight up must keep tongue origin at the mouth line (>161.5), not up in the eyes; got ${originUp.y}`
+  );
 
   const originAir = getFrogMouthOrigin(240, 160, 15, 0, 1, 0);
   assert.ok(
@@ -339,30 +344,62 @@ test('acid rain and swamp storm particles with wind drift and projectile physics
   assert.equal(tongueBullet.vx, 180, 'Tongue whip remains anchored and immune to wind drift');
 });
 
-import { CAULDRON_F1, CAULDRON_F2, CAULDRON_F3 } from './constants.ts';
+import { CAULDRON_F1, CAULDRON_F2, CAULDRON_F3, MUTATION_DETAILS, SWAMP_RUNES, IT } from './constants.ts';
+import { computeTargetTongueReach } from './physics.ts';
 
-test('Dart Castlevania whip chain reaches generously and extends when whipped', () => {
+test('Dart whip tongue stays small when idle (4.5px) and extends to a compact whip (~38px) when attacking', () => {
+  const idleTarget = computeTargetTongueReach(4.5, false, 1.0, 1.0, 1.0);
+  const activeTarget = computeTargetTongueReach(4.5, true, 1.0, 1.0, 1.0);
+
+  assert.equal(idleTarget, 4.5, 'Tongue should stay tiny (4.5px) when not clicking');
+  assert.ok(
+    activeTarget >= 34 && activeTarget <= 46,
+    `Tongue should extend proportionally (~38px) when attacking, got ${activeTarget}`
+  );
+
   const mouthX = 100;
   const mouthY = 100;
-  const idleReach = 84;
-  const activeReach = 138;
-  const chain = initCastlevaniaWhipChain(mouthX, mouthY, 0, idleReach, 9);
+  const chain = initCastlevaniaWhipChain(mouthX, mouthY, 0, idleTarget, 9);
   assert.equal(chain.length, 9, 'Whip should have 9 segments');
   assert.equal(chain[0].x, mouthX);
+  assert.equal(Math.round(chain[8].x), Math.round(mouthX + idleTarget));
 
-  // When whipped actively forward along ang = 0, update over several frames
-  for (let frame = 0; frame < 20; frame++) {
-    updateCastlevaniaWhipChain(chain, mouthX, mouthY, 0, activeReach, 0.016, true);
+  // When whipped actively forward along ang = 0, update over frames
+  for (let frame = 0; frame < 15; frame++) {
+    updateCastlevaniaWhipChain(chain, mouthX, mouthY, 0, activeTarget, 0.016, true);
   }
   const tip = chain[chain.length - 1];
-  assert.ok(tip.x > mouthX + 90, `Whip tip extended generously past 90px: ${tip.x}`);
+  assert.ok(
+    tip.x > mouthX + 30 && tip.x <= mouthX + 48,
+    `Whip tip extended proportionally (~38px) from mouth: ${tip.x}`
+  );
   assert.ok(Math.abs(tip.y - mouthY) < 10, 'Whip aimed forward along aim line');
+
+  // When released, retracts back smoothly toward small idle length
+  for (let frame = 0; frame < 35; frame++) {
+    updateCastlevaniaWhipChain(chain, mouthX, mouthY, 0, idleTarget, 0.016, false);
+  }
+  assert.ok(chain[chain.length - 1].x < mouthX + 12, `Whip retracted back near mouth: ${chain[chain.length - 1].x}`);
 
   // Verify Cauldron animation frames exist and have 16 lines
   assert.equal(CAULDRON_F1.length, 16);
   assert.equal(CAULDRON_F2.length, 16);
   assert.equal(CAULDRON_F3.length, 16);
 });
+
+test('MUTATION_DETAILS and SWAMP_RUNES provide complete bonus and penalty stats for UI tooltips', () => {
+  assert.equal(Object.keys(MUTATION_DETAILS).length, IT.length, 'Every mutation in IT must have a corresponding MUTATION_DETAILS entry');
+  for (let i = 0; i < IT.length; i++) {
+    assert.ok(MUTATION_DETAILS[i].bonuses.length >= 1, `Mutation ${i} must have detailed bonuses`);
+    assert.ok(MUTATION_DETAILS[i].penalties.length >= 1, `Mutation ${i} must have detailed penalties`);
+  }
+
+  assert.equal(SWAMP_RUNES.length, 6, 'There should be 6 Swamp Runes');
+  for (const rune of SWAMP_RUNES) {
+    assert.ok(rune.id && rune.nm && rune.boon && rune.penalty, `Rune ${rune.id} must have complete metadata`);
+  }
+});
+
 
 
 

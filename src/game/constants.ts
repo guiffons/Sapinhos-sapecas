@@ -373,11 +373,11 @@ export const FROG_HATS = [
     "..0blbbbblb0..",
     "..0bbbbbbbb0.."
   ],
-  // 5: Hypno-Toad royal golden crown with ruby
+  // 5: Hypno-Toad abyssal psychic third-eye & bioluminescent antennae
   [
-    "..070.070.070.",
-    "..07707670770.",
-    "..07777777770."
+    "...070..070...",
+    "....070070....",
+    "...00c757c00.."
   ]
 ];
 
@@ -1802,6 +1802,100 @@ export const PACT_LIST: PactDef[] = [
   { id: 'frenzy', nm: 'Lodo Frenético', ds: 'Inimigos se movem +18% mais rápido', reward: '+12% Sorte em Mutações', boon: '+12% Sorte Genética', curse: '+18% Veloc. Inimigos', col: '#69f0ae', ic: 3 },
   { id: 'champions', nm: 'Sangue de Campeão', ds: 'Dobro de chance de Inimigos Campeões', reward: '+30% Moscas de Ouro', boon: '+30% Moscas de Ouro', curse: '2x Inimigos Campeões', col: '#ff4081', ic: 17 },
   { id: 'glass', nm: 'Mutação Instável', ds: '+30% Dano causado, mas inicia com -1 Coração', reward: '+1 Chave extra por andar', boon: '+30% Dano & +1 Chave', curse: '-1 Coração Inicial', col: '#00e5ff', ic: 18 }
+];
+
+export interface SwampRuneDef {
+  id: string;
+  nm: string;
+  sub: string;
+  boon: string;
+  penalty: string;
+  ds: string;
+  col: string;
+  ic: number;
+  mods: {
+    dmMult?: number;
+    rtMult?: number;
+    spBonus?: number;
+    hpDelta?: number;
+    startShield?: number;
+    startGoldBonus?: number;
+    startKeyBonus?: number;
+    flyDropMult?: number;
+    enemyHpMult?: number;
+    enemySpdMult?: number;
+    whipReachMult?: number;
+    projScaleMult?: number;
+  };
+}
+
+export const SWAMP_RUNES: SwampRuneDef[] = [
+  {
+    id: 'voracidade',
+    nm: 'Runa da Voracidade',
+    sub: 'Ofensiva Brutal',
+    boon: '+30% Dano Global & +15% Tamanho de Ataque/Língua',
+    penalty: '-1 Coração de Vida Máxima na exploração',
+    ds: 'Infunde as glândulas com fúria ancestral do pântano para ataques devastadores.',
+    col: '#ff5252',
+    ic: 0,
+    mods: { dmMult: 1.3, projScaleMult: 1.15, whipReachMult: 1.15, hpDelta: -1 },
+  },
+  {
+    id: 'carapaca',
+    nm: 'Runa da Carapaça Antiga',
+    sub: 'Defesa & Fortitude',
+    boon: '+2 Corações Máximos & Escudo de Bolha Inicial',
+    penalty: '-10 Velocidade de Movimento base',
+    ds: 'Endurece a pele anfíbia como rocha musgosa, suportando muito mais dano.',
+    col: '#40c4ff',
+    ic: 6,
+    mods: { hpDelta: 2, startShield: 1, spBonus: -10 },
+  },
+  {
+    id: 'frenesi',
+    nm: 'Runa do Frenesi Ácido',
+    sub: 'Cadência & Agilidade',
+    boon: '+25% Cadência de Disparo & +18 Velocidade',
+    penalty: 'Inimigos da masmorra se movem +12% mais rápido',
+    ds: 'Acelera o metabolismo do sapo e de toda a fauna ao redor em ritmo frenético.',
+    col: '#76ff03',
+    ic: 1,
+    mods: { rtMult: 0.78, spBonus: 18, enemySpdMult: 1.12 },
+  },
+  {
+    id: 'cobica',
+    nm: 'Runa da Cobiça Dourada',
+    sub: 'Economia & Saque',
+    boon: '+50% Moscas de Ouro caídas & +8 Moscas +1 Chave iniciais',
+    penalty: 'Inimigos possuem +18% de Vida na exploração',
+    ds: 'Atrai enxames dourados e relíquias para a masmorra, mas fortalece os guardiões.',
+    col: '#ffd54f',
+    ic: 17,
+    mods: { flyDropMult: 1.5, startGoldBonus: 8, startKeyBonus: 1, enemyHpMult: 1.18 },
+  },
+  {
+    id: 'chicote',
+    nm: 'Runa do Chicote Elástico',
+    sub: 'Alcance & Controle',
+    boon: '+22% Alcance de Língua/Projéteis & +15% Dano',
+    penalty: '-8% Cadência de Disparo base',
+    ds: 'Alonga as fibras musculares da língua e pressuriza o disparo a longa distância.',
+    col: '#ff4081',
+    ic: 7,
+    mods: { whipReachMult: 1.22, projScaleMult: 1.18, dmMult: 1.15, rtMult: 1.08 },
+  },
+  {
+    id: 'tempestade',
+    nm: 'Runa da Bio-Tempestade',
+    sub: 'Sinergia Elemental',
+    boon: '+20% Dano Global, +12 Velocidade & +10% Cadência',
+    penalty: 'Inimigos têm +12% Vida e +10% Velocidade',
+    ds: 'Carrega o ar da masmorra com eletricidade estática de alto risco e recompensa.',
+    col: '#00e5ff',
+    ic: 18,
+    mods: { dmMult: 1.2, spBonus: 12, rtMult: 0.9, enemyHpMult: 1.12, enemySpdMult: 1.1 },
+  },
 ];
 
 export const HP_STATS: Record<string, number> = {

@@ -11,19 +11,25 @@ import {
   formatKeyLabel,
   AchievementDef,
   ShamanUpgradeDef,
+  PACT_LIST,
+  SWAMP_RUNES,
+  SwampRuneDef,
+  MUTATION_DETAILS,
+  CH,
 } from '../game/constants.ts';
 import { GameEngine, ToastItem } from '../game/engine.ts';
 import { PixelIcon } from './TitleScreen.tsx';
 
 interface ModalsProps {
   engine: GameEngine | null;
-  activeModal: 'shaman' | 'achievements' | 'options' | 'codex' | null;
+  activeModal: 'shaman' | 'achievements' | 'options' | 'codex' | 'runes' | null;
   onClose: () => void;
   toast: ToastItem | null;
   onBackToTitle?: () => void;
   onGoCamp?: () => void;
   onRestart?: () => void;
   onOpenCodex?: () => void;
+  onOpenRunes?: () => void;
 }
 
 const KEYBIND_ROWS: Array<{
@@ -47,13 +53,8 @@ const KEYBIND_ROWS: Array<{
   {
     key: 'interact',
     label: 'Interagir / Usar Altar & Baú',
-    desc: 'Abre baús, fala com Xamã e Mercador',
+    desc: 'Abre baús, fala com Xamã, Runas e Mercador',
     highlight: true,
-  },
-  {
-    key: 'partner',
-    label: 'Alternar Parceiro Co-op',
-    desc: 'Chama ou dispensa o sapo aliado',
   },
   {
     key: 'restart',
@@ -91,12 +92,22 @@ export const Modals: React.FC<ModalsProps> = ({
   onGoCamp,
   onRestart,
   onOpenCodex,
+  onOpenRunes,
 }) => {
   const [, setTick] = useState(0);
-  const [codexTab, setCodexTab] = useState<'enemies' | 'weapons' | 'relics'>('enemies');
+  const [codexTab, setCodexTab] = useState<'enemies' | 'weapons' | 'relics' | 'pacts'>('relics');
   const [listeningKey, setListeningKey] = useState<keyof KeyBindings | null>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [playerNameInput, setPlayerNameInput] = useState<string>(engine?.playerName || 'Sapo');
+  const [coopCodeInput, setCoopCodeInput] = useState<string>(engine?.netRoom || 'sapo01');
   const forceUpdate = () => setTick((t) => t + 1);
+
+  useEffect(() => {
+    if (engine) {
+      setPlayerNameInput(engine.playerName || 'Sapo');
+      if (engine.netRoom) setCoopCodeInput(engine.netRoom);
+    }
+  }, [engine, activeModal]);
 
   useEffect(() => {
     const syncFs = () => {
@@ -177,6 +188,7 @@ export const Modals: React.FC<ModalsProps> = ({
   if (!engine && !toast) return null;
 
   const binds: KeyBindings = engine?.CFG?.binds || DEFAULT_BINDS;
+  const activeRunes: string[] = engine?.activeRunes || [];
 
   return (
     <>
@@ -199,6 +211,150 @@ export const Modals: React.FC<ModalsProps> = ({
         </div>
       )}
 
+      {/* Swamp Runes Modal (Pre-Run Global Modifiers) */}
+      {activeModal === 'runes' && engine && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center p-3 sm:p-4 bg-black/85 select-none"
+          data-testid="runes-modal"
+        >
+          <div className="w-full max-w-2xl max-h-[88vh] flex flex-col bg-[#12091c] border-2 border-[#e040fb] p-4 sm:p-5 shadow-[6px_6px_0_#000] font-mono">
+            <div className="flex justify-between items-center border-b-2 border-[#4a148c] pb-3 mb-3">
+              <div className="flex items-center gap-2.5">
+                <PixelIcon sprite={engine.S.shrine} size={26} />
+                <div>
+                  <h2
+                    className="text-xs sm:text-sm md:text-base font-black text-[#ea80fc]"
+                    style={{ fontFamily: '"Press Start 2P", monospace' }}
+                  >
+                    RUNAS DO PÂNTANO
+                  </h2>
+                  <p className="text-[10px] text-[#ce93d8] mt-0.5">
+                    Equipe até 2 Runas Ancestrais antes da exploração para ativar modificadores globais!
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                data-testid="runes-close-btn"
+                className="btn-jelly px-3 py-1.5 bg-[#2a1240] hover:bg-[#3d1b5c] border-2 border-[#ea80fc] text-xs text-[#f3e5f5] font-bold cursor-pointer"
+              >
+                PRONTO [ESC]
+              </button>
+            </div>
+
+            {/* Equipped Runes Banner */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-[#0a0510] border-2 border-[#7b1fa2] mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-[#ea80fc]">
+                  SLOTS DE RUNA ATIVOS:
+                </span>
+                <span
+                  className="px-2 py-0.5 bg-[#311042] border border-[#e040fb] text-xs font-black text-[#ffd54f]"
+                  data-testid="runes-active-count"
+                >
+                  {activeRunes.length} / 2
+                </span>
+              </div>
+              {activeRunes.length > 0 ? (
+                <button
+                  onClick={() => {
+                    engine.activeRunes = [];
+                    engine.saveProgress();
+                    if (engine.me) engine.initPlayer(engine.ch);
+                    engine.snd(300, 0.1, 'triangle', 0.06, -90);
+                    forceUpdate();
+                  }}
+                  className="btn-jelly px-2.5 py-1 bg-[#3b1022] hover:bg-[#591833] border border-[#ff5252] text-[10px] font-bold text-[#ff8a80] cursor-pointer"
+                >
+                  LIMPAR RUNAS
+                </button>
+              ) : (
+                <span className="text-[10px] text-[#9575cd]">
+                  Toque em uma runa abaixo para gravá-la no seu sapo
+                </span>
+              )}
+            </div>
+
+            {/* Runes Grid */}
+            <div className="flex-1 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2.5 pr-1">
+              {SWAMP_RUNES.map((rune: SwampRuneDef) => {
+                const isEquipped = activeRunes.includes(rune.id);
+                return (
+                  <div
+                    key={rune.id}
+                    data-testid={`rune-card-${rune.id}`}
+                    onClick={() => {
+                      engine.toggleRune(rune.id);
+                      forceUpdate();
+                    }}
+                    className={`flex flex-col justify-between p-3 border-2 transition-all cursor-pointer ${
+                      isEquipped
+                        ? 'bg-[#261138] border-[#ffd54f] shadow-[0_0_12px_rgba(224,64,251,0.35)]'
+                        : 'bg-[#160b22] hover:bg-[#1e102e] border-[#4a2366]'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div
+                            className="w-9 h-9 bg-[#0a0510] border-2 flex items-center justify-center shrink-0"
+                            style={{ borderColor: rune.col }}
+                          >
+                            <PixelIcon sprite={engine.S.items?.[rune.ic]} size={22} />
+                          </div>
+                          <div className="min-w-0">
+                            <div
+                              className="text-[10px] sm:text-[11px] font-black leading-tight"
+                              style={{ color: rune.col }}
+                            >
+                              {rune.nm.toUpperCase()}
+                            </div>
+                            <div className="text-[9px] text-[#b39ddb]">
+                              {rune.sub.toUpperCase()}
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            engine.toggleRune(rune.id);
+                            forceUpdate();
+                          }}
+                          data-testid={`rune-toggle-${rune.id}`}
+                          className={`btn-jelly px-2.5 py-1 border-2 text-[10px] font-black shrink-0 cursor-pointer ${
+                            isEquipped
+                              ? 'bg-[#ffd54f] border-white text-[#12091c]'
+                              : 'bg-[#28143b] border-[#ba68c8] text-[#e1bee7]'
+                          }`}
+                        >
+                          {isEquipped ? 'EQUIPADA' : 'EQUIPAR'}
+                        </button>
+                      </div>
+
+                      <div className="space-y-1 mt-2 pt-1.5 border-t border-[#34184d]">
+                        <div className="text-[11px] font-bold text-[#69f0ae] flex items-start gap-1">
+                          <span>▲ BÔNUS:</span>
+                          <span>{rune.boon}</span>
+                        </div>
+                        <div className="text-[11px] font-bold text-[#ff8a80] flex items-start gap-1">
+                          <span>▼ PENALIDADE:</span>
+                          <span>{rune.penalty}</span>
+                        </div>
+                        <div className="text-[10px] text-[#ce93d8] italic pt-0.5">
+                          {rune.ds}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Shaman Upgrade Cauldron Modal */}
       {activeModal === 'shaman' && engine && (
         <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/80 select-none">
@@ -215,7 +371,7 @@ export const Modals: React.FC<ModalsProps> = ({
               </div>
               <button
                 onClick={onClose}
-                className="px-3 py-1 bg-[#0d262c] hover:bg-[#143942] border-2 border-[#00e5ff] text-xs font-mono text-[#84ffff] font-bold cursor-pointer"
+                className="btn-jelly px-3 py-1 bg-[#0d262c] hover:bg-[#143942] border-2 border-[#00e5ff] text-xs font-mono text-[#84ffff] font-bold cursor-pointer"
               >
                 FECHAR [ESC]
               </button>
@@ -282,11 +438,11 @@ export const Modals: React.FC<ModalsProps> = ({
                           forceUpdate();
                         }
                       }}
-                      className={`px-3 py-2 border-2 font-bold text-xs cursor-pointer transition-all shrink-0 tabular-nums ${
+                      className={`btn-jelly px-3 py-2 border-2 font-bold text-xs cursor-pointer transition-all shrink-0 tabular-nums ${
                         isMax
                           ? 'bg-[#121e22] text-[#4f6b75] border-[#1f333a] cursor-not-allowed'
                           : canBuy
-                          ? 'bg-[#00838f] hover:bg-[#00acc1] text-white border-[#84ffff] shadow-[0_3px_0_#00363a] active:translate-y-0.5'
+                          ? 'bg-[#00838f] hover:bg-[#00acc1] text-white border-[#84ffff] shadow-[0_3px_0_#00363a]'
                           : 'bg-[#0c181c] text-[#546e7a] border-[#1c3138] cursor-not-allowed'
                       }`}
                     >
@@ -302,7 +458,10 @@ export const Modals: React.FC<ModalsProps> = ({
 
       {/* Compendium / Bestiary & Abilities Modal */}
       {activeModal === 'codex' && engine && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/80 select-none">
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/80 select-none"
+          data-testid="codex-modal"
+        >
           <div className="w-full max-w-2xl max-h-[86vh] flex flex-col bg-[#120c1c] border-2 border-[#b388ff] p-5 shadow-[6px_6px_0_#000] font-mono">
             <div className="flex justify-between items-center border-b-2 border-[#4a148c] pb-3 mb-3">
               <div className="flex items-center gap-2.5">
@@ -311,12 +470,12 @@ export const Modals: React.FC<ModalsProps> = ({
                   className="text-sm md:text-base font-black text-[#e1bee7]"
                   style={{ fontFamily: '"Press Start 2P", monospace' }}
                 >
-                  BESTIÁRIO & HABILIDADES
+                  BESTIÁRIO & MUTAÇÕES
                 </h2>
               </div>
               <button
                 onClick={onClose}
-                className="px-3 py-1 bg-[#28163e] hover:bg-[#381f57] border-2 border-[#b388ff] text-xs text-[#ede7f6] font-bold cursor-pointer"
+                className="btn-jelly px-3 py-1 bg-[#28163e] hover:bg-[#381f57] border-2 border-[#b388ff] text-xs text-[#ede7f6] font-bold cursor-pointer"
               >
                 FECHAR [ESC]
               </button>
@@ -325,8 +484,21 @@ export const Modals: React.FC<ModalsProps> = ({
             {/* Category Tabs */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
               <button
+                onClick={() => setCodexTab('relics')}
+                data-testid="codex-tab-relics"
+                className={`btn-jelly py-2 border-2 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                  codexTab === 'relics'
+                    ? 'bg-[#4a148c] border-[#ea80fc] text-white shadow-[0_2px_0_#1a0633]'
+                    : 'bg-[#1a1026] border-[#311b47] text-[#9575cd] hover:text-white'
+                }`}
+              >
+                <PixelIcon sprite={engine.S.items?.[0]} size={15} />
+                <span>MUTAÇÕES ({IT.length})</span>
+              </button>
+              <button
                 onClick={() => setCodexTab('enemies')}
-                className={`py-2 border-2 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                data-testid="codex-tab-enemies"
+                className={`btn-jelly py-2 border-2 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                   codexTab === 'enemies'
                     ? 'bg-[#4a148c] border-[#ea80fc] text-white shadow-[0_2px_0_#1a0633]'
                     : 'bg-[#1a1026] border-[#311b47] text-[#9575cd] hover:text-white'
@@ -337,7 +509,8 @@ export const Modals: React.FC<ModalsProps> = ({
               </button>
               <button
                 onClick={() => setCodexTab('weapons')}
-                className={`py-2 border-2 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                data-testid="codex-tab-weapons"
+                className={`btn-jelly py-2 border-2 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                   codexTab === 'weapons'
                     ? 'bg-[#4a148c] border-[#ea80fc] text-white shadow-[0_2px_0_#1a0633]'
                     : 'bg-[#1a1026] border-[#311b47] text-[#9575cd] hover:text-white'
@@ -347,19 +520,9 @@ export const Modals: React.FC<ModalsProps> = ({
                 <span>HABILIDADES ({WP.length})</span>
               </button>
               <button
-                onClick={() => setCodexTab('relics')}
-                className={`py-2 border-2 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-                  codexTab === 'relics'
-                    ? 'bg-[#4a148c] border-[#ea80fc] text-white shadow-[0_2px_0_#1a0633]'
-                    : 'bg-[#1a1026] border-[#311b47] text-[#9575cd] hover:text-white'
-                }`}
-              >
-                <PixelIcon sprite={engine.S.items?.[0]} size={15} />
-                <span>MUTAÇÕES ({IT.length})</span>
-              </button>
-              <button
                 onClick={() => setCodexTab('pacts')}
-                className={`py-2 border-2 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                data-testid="codex-tab-pacts"
+                className={`btn-jelly py-2 border-2 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                   codexTab === 'pacts'
                     ? 'bg-[#4a148c] border-[#ea80fc] text-white shadow-[0_2px_0_#1a0633]'
                     : 'bg-[#1a1026] border-[#311b47] text-[#9575cd] hover:text-white'
@@ -445,12 +608,13 @@ export const Modals: React.FC<ModalsProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   {IT.map((it, idx) => {
                     const rar = RAR_INFO[it[2]] || RAR_INFO[0];
+                    const detail = MUTATION_DETAILS[idx];
                     return (
                       <div
                         key={idx}
-                        className="flex items-center gap-3 p-2.5 bg-[#1a1128] border-2 border-[#4a2c6d]"
+                        className="flex items-start gap-3 p-2.5 bg-[#1a1128] border-2 border-[#4a2c6d] hover:border-[#b388ff] transition-colors"
                       >
-                        <div className="w-11 h-11 bg-[#0c0714] border border-[#69f0ae] flex items-center justify-center shrink-0">
+                        <div className="w-11 h-11 bg-[#0c0714] border border-[#69f0ae] flex items-center justify-center shrink-0 mt-0.5">
                           <PixelIcon sprite={engine.S.items?.[idx]} size={26} />
                         </div>
                         <div className="flex-1 min-w-0">
@@ -465,7 +629,24 @@ export const Modals: React.FC<ModalsProps> = ({
                               {rar.nm}
                             </span>
                           </div>
-                          <div className="text-[10px] text-[#e1bee7] mt-0.5">{it[1]}</div>
+                          {detail ? (
+                            <div className="mt-1 space-y-0.5 text-[10px]">
+                              <div className="text-[#69f0ae] font-bold">
+                                ▲ BÔNUS: {detail.bonuses[0]}
+                              </div>
+                              <div className="text-[#ff8a80] font-bold">
+                                ▼ PENALIDADE: {detail.penalties[0]}
+                              </div>
+                              <div className="text-[#b39ddb] text-[9px]">
+                                * AFINIDADE: {detail.affinityText}
+                                {detail.synergyNames.length > 0
+                                  ? ` · SINERGIA: ${detail.synergyNames.join(', ')}`
+                                  : ''}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-[#e1bee7] mt-0.5">{it[1]}</div>
+                          )}
                         </div>
                       </div>
                     );
@@ -527,7 +708,7 @@ export const Modals: React.FC<ModalsProps> = ({
               </div>
               <button
                 onClick={onClose}
-                className="px-3 py-1 bg-[#162b1e] hover:bg-[#213f2c] border-2 border-[#66bb6a] text-xs font-mono text-[#b9f6ca] font-bold cursor-pointer"
+                className="btn-jelly px-3 py-1 bg-[#162b1e] hover:bg-[#213f2c] border-2 border-[#66bb6a] text-xs font-mono text-[#b9f6ca] font-bold cursor-pointer"
               >
                 FECHAR [ESC]
               </button>
@@ -548,7 +729,7 @@ export const Modals: React.FC<ModalsProps> = ({
                   engine.snd(600, 0.3, 'triangle', 0.09, 400);
                   forceUpdate();
                 }}
-                className="text-[11px] font-bold px-2.5 py-1 bg-[#006064] hover:bg-[#00838f] border border-[#00e5ff] text-[#e0f7fa] cursor-pointer shrink-0"
+                className="btn-jelly text-[11px] font-bold px-2.5 py-1 bg-[#006064] hover:bg-[#00838f] border border-[#00e5ff] text-[#e0f7fa] cursor-pointer shrink-0"
               >
                 LIBERAR TUDO (SANDBOX)
               </button>
@@ -614,18 +795,18 @@ export const Modals: React.FC<ModalsProps> = ({
               <button
                 onClick={onClose}
                 data-testid="options-close-btn"
-                className="px-3 py-1 bg-[#163624] hover:bg-[#204a33] border-2 border-[#66bb6a] text-xs text-[#e8f5e9] font-bold cursor-pointer"
+                className="btn-jelly px-3 py-1 bg-[#163624] hover:bg-[#204a33] border-2 border-[#66bb6a] text-xs text-[#e8f5e9] font-bold cursor-pointer"
               >
                 CONTINUAR [ESC]
               </button>
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-              {/* Real Online Multiplayer Co-op Room Section (Zero Bots) */}
+              {/* Real Online Multiplayer Co-op Room Section */}
               <div className="p-3 bg-[#061318] border-2 border-[#00e5ff] space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-black text-[#00e5ff] tracking-wider">
-                    MULTIPLAYER CO-OP ONLINE REAL (SEM BOT)
+                    MULTIPLAYER CO-OP ONLINE REAL (P2P)
                   </span>
                   <span className="text-[10px] font-bold text-[#ffd54f]">
                     {engine.netRoom
@@ -654,7 +835,7 @@ export const Modals: React.FC<ModalsProps> = ({
                         engine.joinMultiplayerRoom(coopCodeInput || 'sapo01', playerNameInput);
                         forceUpdate();
                       }}
-                      className="flex-1 py-1 bg-[#00acc1] hover:bg-[#00e5ff] text-[#041014] font-black text-xs border border-white cursor-pointer"
+                      className="btn-jelly flex-1 py-1 bg-[#00acc1] hover:bg-[#00e5ff] text-[#041014] font-black text-xs border border-white cursor-pointer"
                     >
                       ENTRAR SALA
                     </button>
@@ -664,7 +845,7 @@ export const Modals: React.FC<ModalsProps> = ({
                           engine.leaveMultiplayerRoom();
                           forceUpdate();
                         }}
-                        className="px-2.5 py-1 bg-[#4a1218] hover:bg-[#6d1b24] text-[#ffcdd2] font-bold text-xs border border-[#ff5252] cursor-pointer"
+                        className="btn-jelly px-2.5 py-1 bg-[#4a1218] hover:bg-[#6d1b24] text-[#ffcdd2] font-bold text-xs border border-[#ff5252] cursor-pointer"
                       >
                         SAIR
                       </button>
@@ -692,14 +873,14 @@ export const Modals: React.FC<ModalsProps> = ({
                   <div className="text-[10px] font-black text-[#ffd54f] mb-2 tracking-wider">
                     AÇÕES DA PARTIDA
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {onGoCamp && (
                       <button
                         onClick={() => {
                           onClose();
                           onGoCamp();
                         }}
-                        className="px-2 py-1.5 bg-[#112418] hover:bg-[#193322] border-2 border-[#ffd54f] text-[11px] font-bold text-[#ffd54f] flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="btn-jelly px-2 py-1.5 bg-[#112418] hover:bg-[#193322] border-2 border-[#ffd54f] text-[10px] font-bold text-[#ffd54f] flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <PixelIcon sprite={engine.S.campfire?.[0]} size={14} />
                         <span>ACAMPAMENTO</span>
@@ -712,10 +893,22 @@ export const Modals: React.FC<ModalsProps> = ({
                           onClose();
                           onRestart();
                         }}
-                        className="px-2 py-1.5 bg-[#112418] hover:bg-[#193322] border-2 border-[#66bb6a] text-[11px] font-bold text-[#e8f5e9] flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="btn-jelly px-2 py-1.5 bg-[#112418] hover:bg-[#193322] border-2 border-[#66bb6a] text-[10px] font-bold text-[#e8f5e9] flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <PixelIcon sprite={engine.S.rst} size={13} />
                         <span>NOVA RUN</span>
+                      </button>
+                    )}
+
+                    {onOpenRunes && (
+                      <button
+                        onClick={() => {
+                          onOpenRunes();
+                        }}
+                        className="btn-jelly px-2 py-1.5 bg-[#221030] hover:bg-[#331847] border-2 border-[#e040fb] text-[10px] font-bold text-[#f3e5f5] flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <PixelIcon sprite={engine.S.shrine} size={14} />
+                        <span>RUNAS ({activeRunes.length}/2)</span>
                       </button>
                     )}
 
@@ -724,7 +917,7 @@ export const Modals: React.FC<ModalsProps> = ({
                         onClick={() => {
                           onOpenCodex();
                         }}
-                        className="px-2 py-1.5 bg-[#1f1230] hover:bg-[#2d1a45] border-2 border-[#b388ff] text-[11px] font-bold text-[#e1bee7] flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="btn-jelly px-2 py-1.5 bg-[#1f1230] hover:bg-[#2d1a45] border-2 border-[#b388ff] text-[10px] font-bold text-[#e1bee7] flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <PixelIcon sprite={engine.S.bookIc} size={14} />
                         <span>BESTIÁRIO</span>
@@ -763,7 +956,7 @@ export const Modals: React.FC<ModalsProps> = ({
                         engine.saveProgress();
                         forceUpdate();
                       }}
-                      className="px-2 py-1 bg-[#142b1d] border border-[#66bb6a] font-bold text-[#ffd54f] tabular-nums cursor-pointer"
+                      className="btn-jelly px-2 py-1 bg-[#142b1d] border border-[#66bb6a] font-bold text-[#ffd54f] tabular-nums cursor-pointer"
                     >
                       {engine.CFG.muted ? 'MUDO' : `${Math.round(engine.CFG.sfx * 100)}%`}
                     </button>
@@ -780,7 +973,7 @@ export const Modals: React.FC<ModalsProps> = ({
                         engine.saveProgress();
                         forceUpdate();
                       }}
-                      className="px-2 py-0.5 bg-[#142b1d] border border-[#66bb6a] font-bold text-[#e8f5e9] cursor-pointer"
+                      className="btn-jelly px-2 py-0.5 bg-[#142b1d] border border-[#66bb6a] font-bold text-[#e8f5e9] cursor-pointer"
                     >
                       {engine.CFG.shake === 0
                         ? 'OFF'
@@ -798,7 +991,7 @@ export const Modals: React.FC<ModalsProps> = ({
                         engine.saveProgress();
                         forceUpdate();
                       }}
-                      className="px-2 py-0.5 bg-[#142b1d] border border-[#66bb6a] font-bold text-[#e8f5e9] cursor-pointer"
+                      className="btn-jelly px-2 py-0.5 bg-[#142b1d] border border-[#66bb6a] font-bold text-[#e8f5e9] cursor-pointer"
                     >
                       {engine.CFG.hitstop ? 'LIGADO' : 'OFF'}
                     </button>
@@ -814,7 +1007,7 @@ export const Modals: React.FC<ModalsProps> = ({
                         engine.saveProgress();
                         forceUpdate();
                       }}
-                      className="px-2 py-0.5 bg-[#142b1d] border border-[#00e5ff] font-bold text-[#84ffff] cursor-pointer"
+                      className="btn-jelly px-2 py-0.5 bg-[#142b1d] border border-[#00e5ff] font-bold text-[#84ffff] cursor-pointer"
                     >
                       {(engine.CFG.touch || 'auto').toUpperCase()}
                     </button>
@@ -828,7 +1021,7 @@ export const Modals: React.FC<ModalsProps> = ({
                         forceUpdate();
                       }}
                       data-testid="options-fullscreen-btn"
-                      className="px-2 py-0.5 bg-[#142b1d] border border-[#ffd54f] font-bold text-[#ffd54f] cursor-pointer"
+                      className="btn-jelly px-2 py-0.5 bg-[#142b1d] border border-[#ffd54f] font-bold text-[#ffd54f] cursor-pointer"
                     >
                       {isFullscreen ? 'SAIR TELA CHEIA' : 'ATIVAR TELA CHEIA'}
                     </button>
@@ -859,7 +1052,7 @@ export const Modals: React.FC<ModalsProps> = ({
                       forceUpdate();
                     }}
                     data-testid="reset-binds-btn"
-                    className="px-2.5 py-1 bg-[#1b3324] hover:bg-[#254732] border border-[#81c784] text-[10px] font-bold text-[#e8f5e9] cursor-pointer shrink-0"
+                    className="btn-jelly px-2.5 py-1 bg-[#1b3324] hover:bg-[#254732] border border-[#81c784] text-[10px] font-bold text-[#e8f5e9] cursor-pointer shrink-0"
                   >
                     RESTAURAR PADRÃO
                   </button>
@@ -891,7 +1084,7 @@ export const Modals: React.FC<ModalsProps> = ({
                             engine.snd(480, 0.06, 'sine', 0.05, 140);
                           }}
                           data-testid={`bind-btn-${row.key}`}
-                          className={`px-2.5 py-1 border-2 font-black text-[10px] min-w-[76px] text-center cursor-pointer transition-all shrink-0 ${
+                          className={`btn-jelly px-2.5 py-1 border-2 font-black text-[10px] min-w-[76px] text-center cursor-pointer transition-all shrink-0 ${
                             isListening
                               ? 'bg-[#ffd54f] border-white text-[#050a07] animate-pulse'
                               : 'bg-[#142e1f] hover:bg-[#1e462f] border-[#69f0ae] text-[#ffd54f] shadow-[0_2px_0_#040805]'
@@ -913,7 +1106,7 @@ export const Modals: React.FC<ModalsProps> = ({
                     onClose();
                     onBackToTitle();
                   }}
-                  className="flex-1 py-2 font-bold text-xs bg-[#b71c1c] hover:bg-[#d32f2f] text-white border-2 border-[#ef5350] shadow-[0_3px_0_#4a0b0b] active:translate-y-0.5 cursor-pointer"
+                  className="btn-jelly flex-1 py-2 font-bold text-xs bg-[#b71c1c] hover:bg-[#d32f2f] text-white border-2 border-[#ef5350] shadow-[0_3px_0_#4a0b0b] cursor-pointer"
                 >
                   VOLTAR AO MENU PRINCIPAL
                 </button>
@@ -925,4 +1118,3 @@ export const Modals: React.FC<ModalsProps> = ({
     </>
   );
 };
-

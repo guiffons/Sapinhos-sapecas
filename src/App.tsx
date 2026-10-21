@@ -16,7 +16,7 @@ export default function App() {
   const [engine, setEngine] = useState<GameEngine | null>(null);
   const [gameState, setGameState] = useState<'menu' | 'camp' | 'play'>('menu');
   const [activeModal, setActiveModal] = useState<
-    'shaman' | 'achievements' | 'options' | 'codex' | null
+    'shaman' | 'achievements' | 'options' | 'codex' | 'runes' | null
   >(null);
   const [currentToast, setCurrentToast] = useState<ToastItem | null>(null);
 
@@ -41,6 +41,7 @@ export default function App() {
     eng.onOpenShaman = () => setActiveModal('shaman');
     eng.onOpenAchievements = () => setActiveModal('achievements');
     eng.onOpenOptions = () => setActiveModal('options');
+    eng.onOpenRunes = () => setActiveModal('runes');
 
     // Check query params for autostart or room join
     const params = new URLSearchParams(window.location.search);
@@ -49,7 +50,8 @@ export default function App() {
       eng.joinMultiplayerRoom(urlRoom);
     }
     if (params.get('autostart') === '1' || params.get('play') === '1') {
-      eng.initPlayer(0);
+      const charParam = Number(params.get('char') || 0);
+      eng.initPlayer(Number.isFinite(charParam) ? charParam : 0);
       eng.reset(false);
       if (params.get('combat') === '1' && eng.wd?.grid) {
         outer: for (let y = 0; y < 5; y++) {
@@ -132,13 +134,13 @@ export default function App() {
   const isPlaying = gameState === 'camp' || gameState === 'play';
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-[#040806] flex items-center justify-center p-0 sm:p-1.5">
-      {/* 60 FPS Isolated Canvas Container with Crisp Full-Viewport Fit */}
+    <div className="relative w-screen h-screen overflow-hidden bg-[#040806] select-none">
+      {/* 60 FPS Fullscreen Edge-to-Edge Pixel-Art Canvas (Zero Boxed Borders, Zero Stretching) */}
       <canvas
         ref={canvasRef}
         width={W * Z}
         height={H * Z}
-        className={`w-full h-full max-h-screen max-w-screen sm:max-h-[97vh] sm:max-w-[146vh] aspect-[3/2] object-contain image-rendering-pixelated block shadow-[0_0_50px_rgba(0,0,0,0.95)] border-0 sm:border-2 border-[#1f3d28] ${
+        className={`w-screen h-screen block image-rendering-pixelated ${
           isPlaying ? 'cursor-none' : 'cursor-default'
         }`}
         data-testid="game-canvas"
@@ -155,10 +157,11 @@ export default function App() {
           onOpenOptions={() => setActiveModal('options')}
           onOpenShaman={() => setActiveModal('shaman')}
           onOpenCodex={() => setActiveModal('codex')}
+          onOpenRunes={() => setActiveModal('runes')}
         />
       )}
 
-      {/* Game HUD (Top controls and mobile touch) */}
+      {/* Game HUD (Top controls, interactive Mutation/Rune bar, and mobile touch) */}
       {isPlaying && (
         <GameHUD
           engine={engine}
@@ -166,6 +169,7 @@ export default function App() {
           onRestart={handleRestart}
           onOpenOptions={() => setActiveModal('options')}
           onOpenCodex={() => setActiveModal('codex')}
+          onOpenRunes={() => setActiveModal('runes')}
         />
       )}
 
@@ -182,6 +186,7 @@ export default function App() {
         onGoCamp={handleGoCamp}
         onRestart={handleRestart}
         onOpenCodex={() => setActiveModal('codex')}
+        onOpenRunes={() => setActiveModal('runes')}
       />
     </div>
   );

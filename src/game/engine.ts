@@ -113,6 +113,7 @@ import {
   SHRINE_MAT,
   SHRINE_PAL,
   CRYSTAL_MAT,
+  SWAMP_RUNES,
 } from './constants.ts';
 import {
   calculateZ,
@@ -120,6 +121,7 @@ import {
   calculateDPS,
   updateBouncingParticle,
   getFrogMouthOrigin,
+  computeTargetTongueReach,
   initCastlevaniaWhipChain,
   updateCastlevaniaWhipChain,
   WhipSegment,
@@ -139,7 +141,7 @@ import {
 export const W = 480;
 export const H = 320;
 export const M = 32;
-export const Z = 2;
+export const Z = 3;
 
 export const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 export const rnd = () => (Math.random() * 1e9) | 0;
@@ -155,8 +157,24 @@ export function spr(rows: string[], pal: Record<string, string>, s = 2): HTMLCan
   rows.forEach((r, y) =>
     [...r].forEach((ch, i) => {
       if (pal[ch]) {
+        const px = i * sc;
+        const py = y * sc;
         x.fillStyle = pal[ch];
-        x.fillRect(i * sc, y * sc, sc, sc);
+        x.fillRect(px, py, sc, sc);
+
+        // Authentic Godot 16-bit indie pixel-art top highlight & bottom shadow beveling
+        if (sc >= 2 && ch !== '0' && ch !== '1' && ch !== '3' && ch !== '5' && ch !== 'l') {
+          const upCh = y > 0 ? rows[y - 1]?.[i] : '.';
+          const dnCh = y < rows.length - 1 ? rows[y + 1]?.[i] : '.';
+          if (!upCh || upCh === '.' || upCh === '0') {
+            x.fillStyle = 'rgba(255,255,255,0.16)';
+            x.fillRect(px, py, sc, 1);
+          }
+          if (!dnCh || dnCh === '.' || dnCh === '0') {
+            x.fillStyle = 'rgba(0,0,0,0.22)';
+            x.fillRect(px, py + sc - 1, sc, 1);
+          }
+        }
       }
     })
   );
@@ -468,7 +486,7 @@ export class GameEngine {
   tongueHitCd: Record<number, number> = {};
   tongueDummyCd = 0;
   tongueActive = false;
-  tongueReach = 18;
+  tongueReach = 4.5;
 
   // Real Online Multiplayer State (WebSockets + BroadcastChannel, Zero AI Bots)
   netRoom = '';
@@ -478,8 +496,10 @@ export class GameEngine {
   netSyncTimer = 0;
   playerName = 'Sapo-' + Math.floor(10 + Math.random() * 89);
 
-  // Swamp Pact Modifiers & Run Telemetry
+  // Swamp Pact & Pre-Run Swamp Rune Modifiers & Run Telemetry
   activePacts: Record<string, boolean> = {};
+  pacts: string[] = [];
+  activeRunes: string[] = [];
   runStats = {
     roomsCleared: 0,
     wavesCleared: 0,
@@ -523,7 +543,7 @@ export class GameEngine {
     dummy: { x: 88, y: 152, j: 0, v: 0, fl: 0, hits: [] as Array<{ t: number; d: number }>, dps: 0 },
     shaman: { x: 92, y: 236 },
     sign: { x: 382, y: 118, bIdx: 0 },
-    pactAltar: { x: 382, y: 218 },
+    pactAltar: { x: 396, y: 224 },
     portal: { x: 240, y: 48, t: 0 },
     logs: [
       { x: 184, y: 146, c: 0 },
@@ -564,6 +584,7 @@ export class GameEngine {
   onOpenAchievements?: () => void;
   onOpenOptions?: () => void;
   onOpenMultiplayer?: () => void;
+  onOpenRunes?: () => void;
 
   S: Record<string, any> = {};
   CAMP_BG: HTMLCanvasElement | null = null;
@@ -592,6 +613,11 @@ export class GameEngine {
     fogDensity: 0.12,
   };
 
+  viewW = W;
+  viewH = H;
+  viewOx = 0;
+  viewOy = 0;
+
   audioCtx: AudioContext | null = null;
   running = false;
   lastTime = now();
@@ -609,12 +635,94 @@ export class GameEngine {
     this.initWeather();
     this.initPlayer(0);
     this.reset(true);
+    this.syncViewportSize();
 
     this.boundLoop = this.loop.bind(this);
     this.initEvents();
     this.initNetChannel();
     if (typeof window !== 'undefined') {
       (window as any).__GAME_ENGINE__ = this;
+    }
+  }
+
+  syncViewportSize() {
+    if (typeof window === 'undefined' || !this.canvas) return;
+    const cw = Math.max(320, this.canvas.clientWidth || window.innerWidth || W);
+    const ch = Math.max(240, this.canvas.clientHeight || window.innerHeight || H);
+    const aspect = cw / ch;
+    const baseAspect = W / H;
+
+    let nextW = W;
+    let nextH = H;
+    if (aspect >= baseAspect) {
+      nextH = H;
+      nextW = Math.round(H * aspect);
+    } else {
+      nextW = W;
+      nextH = Math.round(W / aspect);
+    }
+
+    const targetBufW = nextW * Z;
+    const targetBufH = nextH * Z;
+    if (this.canvas.width !== targetBufW || this.canvas.height !== targetBufH) {
+      this.canvas.width = targetBufW;
+      this.canvas.height = targetBufH;
+      this.viewW = nextW;
+      this.viewH = nextH;
+      this.viewOx = Math.round((nextW - W) / 2);
+      this.viewOy = Math.round((nextH - H) / 2);
+      this.ctx.imageSmoothingEnabled = false;
+    }
+  }
+
+  drawFullscreenMarginBackdrop(g: CanvasRenderingContext2D) {
+    if (this.viewOx <= 0 && this.viewOy <= 0) {
+      g.fillStyle = '#040806';
+      g.fillRect(0, 0, this.viewW, this.viewH);
+      return;
+    }
+
+    if (this.ST === 'camp') {
+      // Seamless swamp forest tiles across full widescreen margin
+      for (let x = 0; x < this.viewW; x += 32) {
+        for (let y = 0; y < this.viewH; y += 32) {
+          if (
+            x >= this.viewOx &&
+            x + 32 <= this.viewOx + W &&
+            y >= this.viewOy &&
+            y + 32 <= this.viewOy + H
+          ) {
+            continue;
+          }
+          const ti = ((x / 32) | 0) + ((y / 32) | 0);
+          g.fillStyle = ti % 2 === 0 ? '#0c1a10' : '#0f2014';
+          g.fillRect(x, y, 32, 32);
+          g.fillStyle = '#152b1b';
+          g.fillRect(x + 6, y + 8, 4, 4);
+          g.fillRect(x + 20, y + 18, 4, 4);
+        }
+      }
+      return;
+    }
+
+    // Play scene: seamless biome chiseled outer dungeon stone wall across full widescreen margin
+    const th = TH[this.wd?.bIdx || 0] || TH[0];
+    g.fillStyle = '#060c08';
+    g.fillRect(0, 0, this.viewW, this.viewH);
+    for (let x = 0; x < this.viewW; x += 16) {
+      for (let y = 0; y < this.viewH; y += 8) {
+        if (
+          x >= this.viewOx + M &&
+          x + 16 <= this.viewOx + W - M &&
+          y >= this.viewOy + M &&
+          y + 8 <= this.viewOy + H - M
+        ) {
+          continue;
+        }
+        const isLight = (((x / 16) | 0) + ((y / 8) | 0)) % 2 === 0;
+        g.fillStyle = isLight ? th.wl : th.w;
+        g.fillRect(x + 1, y + 1, 14, 6);
+      }
     }
   }
 
@@ -630,6 +738,11 @@ export class GameEngine {
       this.achStats.larvae = saved.larvae || 0;
       if (saved.upg) this.achStats.upg = { ...this.achStats.upg, ...saved.upg };
       if (saved.pacts) this.activePacts = { ...saved.pacts };
+      if (Array.isArray(saved.runes)) {
+        this.activeRunes = saved.runes
+          .filter((id: string) => SWAMP_RUNES.some((r) => r.id === id))
+          .slice(0, 2);
+      }
       if (saved.playerName) this.playerName = saved.playerName;
       if (saved.cfg) {
         this.CFG = {
@@ -639,6 +752,75 @@ export class GameEngine {
         };
       }
     } catch (e) {}
+  }
+
+  getRuneModifiers() {
+    let dmMult = 1;
+    let rtMult = 1;
+    let spBonus = 0;
+    let hpDelta = 0;
+    let startShield = 0;
+    let startGoldBonus = 0;
+    let startKeyBonus = 0;
+    let flyDropMult = 1;
+    let enemyHpMult = 1;
+    let enemySpdMult = 1;
+    let whipReachMult = 1;
+    let projScaleMult = 1;
+
+    for (const rId of this.activeRunes) {
+      const r = SWAMP_RUNES.find((x) => x.id === rId);
+      if (!r) continue;
+      const m = r.mods;
+      if (m.dmMult) dmMult *= m.dmMult;
+      if (m.rtMult) rtMult *= m.rtMult;
+      if (m.spBonus) spBonus += m.spBonus;
+      if (m.hpDelta) hpDelta += m.hpDelta;
+      if (m.startShield) startShield = Math.max(startShield, m.startShield);
+      if (m.startGoldBonus) startGoldBonus += m.startGoldBonus;
+      if (m.startKeyBonus) startKeyBonus += m.startKeyBonus;
+      if (m.flyDropMult) flyDropMult *= m.flyDropMult;
+      if (m.enemyHpMult) enemyHpMult *= m.enemyHpMult;
+      if (m.enemySpdMult) enemySpdMult *= m.enemySpdMult;
+      if (m.whipReachMult) whipReachMult *= m.whipReachMult;
+      if (m.projScaleMult) projScaleMult *= m.projScaleMult;
+    }
+
+    return {
+      dmMult,
+      rtMult,
+      spBonus,
+      hpDelta,
+      startShield,
+      startGoldBonus,
+      startKeyBonus,
+      flyDropMult,
+      enemyHpMult,
+      enemySpdMult,
+      whipReachMult,
+      projScaleMult,
+    };
+  }
+
+  toggleRune(runeId: string): boolean {
+    const idx = this.activeRunes.indexOf(runeId);
+    if (idx >= 0) {
+      this.activeRunes.splice(idx, 1);
+      this.snd(340, 0.1, 'triangle', 0.06, -90);
+    } else {
+      if (this.activeRunes.length >= 2) {
+        this.activeRunes.shift();
+      }
+      this.activeRunes.push(runeId);
+      this.snd(540, 0.14, 'triangle', 0.08, 220);
+    }
+    const ox = this.me ? this.me.x : 240;
+    const oy = this.me ? this.me.y : 225;
+    this.initPlayer(this.ch);
+    this.me.x = ox;
+    this.me.y = oy;
+    this.saveProgress();
+    return this.activeRunes.includes(runeId);
   }
 
   toggleFullscreen() {
@@ -684,6 +866,7 @@ export class GameEngine {
           larvae: this.achStats.larvae,
           upg: this.achStats.upg,
           pacts: this.activePacts,
+          runes: this.activeRunes,
           playerName: this.playerName,
           cfg: this.CFG,
         })
@@ -1445,10 +1628,13 @@ export class GameEngine {
     const achDm = (this.achData.first_blood ? 0.05 : 0) + (this.achData.big_dmg ? 0.2 : 0);
     const achSp = (this.achData.b3 ? 4 : 0) + (this.achData.untouch ? 3 : 0);
     const achRt = this.achData.b4 ? 0.95 : 1.0;
+    const rm = this.getRuneModifiers();
 
-    const totalHp = c.hp + u.hp + achHp;
-    const totalDm = +(c.dm * (1 + u.dm * 0.12) + achDm).toFixed(2);
-    const totalSp = Math.round((c.sp + 14) * (1 + u.sp * 0.06) + achSp);
+    const totalHp = Math.max(1, c.hp + u.hp + achHp + rm.hpDelta);
+    const totalDm = +((c.dm * (1 + u.dm * 0.12) + achDm) * rm.dmMult).toFixed(2);
+    const totalSp = Math.max(45, Math.round((c.sp + 14) * (1 + u.sp * 0.06) + achSp + rm.spBonus));
+    const totalRt = Math.max(0.08, +(c.rt * achRt * rm.rtMult).toFixed(3));
+    const initShield = Math.max(c.sh, rm.startShield);
 
     this.me = {
       id: this.me ? this.me.id : Math.random().toString(36).slice(2, 8),
@@ -1464,7 +1650,7 @@ export class GameEngine {
       mh: totalHp,
       sp: totalSp,
       dm: totalDm,
-      rt: +(c.rt * achRt).toFixed(3),
+      rt: totalRt,
       cd: 0,
       dead: false,
       inv: 0,
@@ -1473,9 +1659,9 @@ export class GameEngine {
       w: c.wp,
       pr: 0,
       hm: c.hm,
-      big: 1,
-      sh: c.sh,
-      shi: c.sh,
+      big: rm.projScaleMult,
+      sh: initShield,
+      shi: initShield,
       fly: c.fly,
       tri: 0,
       tox: 0,
@@ -1489,8 +1675,8 @@ export class GameEngine {
       clone: 0,
       ankh: 0,
       kills: 0,
-      gold: this.me ? this.me.gold : u.gold * 3,
-      keys: this.me ? this.me.keys : 1 + (this.achData.synergy ? 1 : 0),
+      gold: u.gold * 3 + rm.startGoldBonus,
+      keys: 1 + (this.achData.synergy ? 1 : 0) + rm.startKeyBonus,
       revP: 0,
       its: [],
       syn: {},
@@ -1501,13 +1687,14 @@ export class GameEngine {
       puff: 0,
       wf: 0,
       ch: this.ch,
+      whipReach: 4.5,
     };
 
     this.tongueHitTimers = {};
-    this.tongueReach = 18;
+    this.tongueReach = 4.5;
     if (this.me.w === 3) {
       const mouth = getFrogMouthOrigin(this.me.x, this.me.y, this.me.z, this.me.ang, 1, 0, 0);
-      this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, 18, 9);
+      this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, 4.5, 9);
     } else {
       this.tongueChain = [];
     }
@@ -1603,6 +1790,7 @@ export class GameEngine {
       this.me.x = 240;
       this.me.y = 235;
       this.weather.type = 'none'; // Cozy shelter under swamp canopy; clear pleasant atmosphere
+      this.weather.drops = [];
       this.initCampFloraAndNodes();
       document.body.dataset.state = 'camp';
     } else {
@@ -1611,9 +1799,10 @@ export class GameEngine {
       this.lastKey = this.rmKey();
       document.body.dataset.state = 'playing';
     }
+    this.tongueReach = 4.5;
     if (this.me.w === 3) {
       const mouth = getFrogMouthOrigin(this.me.x, this.me.y, this.me.z, this.me.ang, 1, 0, 0);
-      this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, 84, 9);
+      this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, 4.5, 9);
     }
     this.broadcastMultiplayerState();
     if (this.onStateChange) this.onStateChange(this.ST);
@@ -1850,11 +2039,32 @@ export class GameEngine {
       this.me.j
     );
     const numSegs = 9;
-    const reach = (wantFire ? 138 : 84) * Math.min(1.4, 1 + (this.me.big - 1) * 0.35);
+    const rm = this.getRuneModifiers();
+    this.tongueReach = computeTargetTongueReach(
+      this.tongueReach || 4.5,
+      wantFire,
+      dt,
+      this.me.big || 1,
+      rm.whipReachMult
+    );
+    this.me.whipReach = this.tongueReach;
+    const reach = this.tongueReach;
+    this.tongueActive = wantFire || reach > 10;
+
     if (this.tongueChain.length === 0) {
       this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, reach, numSegs);
     } else {
       updateCastlevaniaWhipChain(this.tongueChain, mouth.x, mouth.y, this.me.ang, reach, dt, wantFire);
+    }
+
+    // Keep whip segments inside arena walls so the tongue never clips out of the room
+    const minX = this.ST === 'play' ? M + 8 : 16;
+    const maxX = this.ST === 'play' ? W - M - 8 : W - 16;
+    const minY = this.ST === 'play' ? M + 8 : 20;
+    const maxY = this.ST === 'play' ? H - M - 8 : H - 16;
+    for (let i = 1; i < this.tongueChain.length; i++) {
+      this.tongueChain[i].x = clamp(this.tongueChain[i].x, minX, maxX);
+      this.tongueChain[i].y = clamp(this.tongueChain[i].y, minY, maxY);
     }
 
     if (wantFire) {
@@ -1871,21 +2081,22 @@ export class GameEngine {
 
     // Gentle fly magnet on the sticky tongue tip
     for (const f of this.FLIES) {
-      if (Math.hypot(f.x - tip.x, f.y - tip.y) < 26) {
-        f.x += (this.me.x - f.x) * dt * 10;
-        f.y += (this.me.y - f.y) * dt * 10;
+      if (Math.hypot(f.x - tip.x, f.y - tip.y) < 28) {
+        f.x += (this.me.x - f.x) * dt * 11;
+        f.y += (this.me.y - f.y) * dt * 11;
       }
     }
 
-    // Check collisions along segments 2..6 of the whip
+    // Only deal whip collision damage when actively lashing out (or while retracting above 28px reach)
+    if (!this.tongueActive) return;
+
     const whipDmg =
       WP[3].dm *
       this.me.dm *
       (this.me.big > 1 ? 1.2 : 1) *
       (this.me.elec ? 1.3 : 1) *
       (this.me.syn['hydra'] ? 1.25 : 1);
-    // Slow, balanced hit interval per target (~0.46s base) so sweeping the tongue is strategic and never overpowered
-    const hitCooldown = Math.max(0.32, 0.48 * (this.me.rt / 0.48));
+    const hitCooldown = Math.max(0.26, 0.42 * (this.me.rt / 0.48));
 
     if (this.ST === 'camp') {
       const dm = this.camp.dummy;
@@ -1938,7 +2149,7 @@ export class GameEngine {
       }
     }
 
-    // Hit enemies with low knockback (3.0 instead of 18) and slow per-enemy cooldown
+    // Hit enemies with controlled gentle knockback (~2.4) so enemies are never pushed off-screen
     for (const e of [...this.wd.en]) {
       const timerKey = `en_${e.id}`;
       if (this.tongueHitTimers[timerKey]) continue;
@@ -1948,7 +2159,7 @@ export class GameEngine {
         if (Math.hypot(e.x - seg.x, e.y - seg.y) < eRad) {
           this.tongueHitTimers[timerKey] = hitCooldown;
           const kbDir = Math.atan2(e.y - this.me.y, e.x - this.me.x);
-          const gentleKb = 3.0 * (this.me.hyper ? 1.2 : 1);
+          const gentleKb = 2.4 * (this.me.hyper ? 1.15 : 1);
           this.hitEnemy(e, whipDmg, Math.cos(kbDir) * gentleKb, Math.sin(kbDir) * gentleKb, this.me.id);
           this.pt(seg.x, seg.y, '#ff80ab', 4, 45, 0.18, 2.0, 160, 1, 'droplet', 0.35);
           if (this.me.tox) {
@@ -2405,8 +2616,9 @@ export class GameEngine {
     }
 
     if (this.me.w === 3) {
+      this.tongueReach = 4.5;
       const mouth = getFrogMouthOrigin(this.me.x, this.me.y, this.me.z, this.me.ang, 1, 0, 0);
-      this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, 7, 6.2);
+      this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, 4.5, 9);
     }
 
     const hz = this.hazards();
@@ -2455,8 +2667,9 @@ export class GameEngine {
 
   createEnemy(t: string, x: number, y: number, chmp = 0): Enemy {
     const bo = t.startsWith('B');
-    const scaleHp = 1 + this.wd.bIdx * 0.25;
-    const baseHp = Math.round((HP_STATS[t] || 12) * (bo ? 1.15 : scaleHp) * (chmp ? 1.5 : 1));
+    const rm = this.getRuneModifiers();
+    const scaleHp = (1 + this.wd.bIdx * 0.25) * rm.enemyHpMult;
+    const baseHp = Math.max(1, Math.round((HP_STATS[t] || 12) * (bo ? 1.15 * rm.enemyHpMult : scaleHp) * (chmp ? 1.5 : 1)));
     this.pt(x, y, CL_STATS[t] || '#69f0ae', 12, 70, 0.35, 2.5);
     return {
       id: rnd(),
@@ -2590,14 +2803,16 @@ export class GameEngine {
     });
     if (this.DC.length > 45) this.DC.shift();
 
-    // Slower gold & larva economy
-    const flyCnt = bo
+    // Gold flies economy scaled by Swamp Runes (e.g. Runa da Cobiça Dourada)
+    const rm = this.getRuneModifiers();
+    const baseFlyCnt = bo
       ? 4 + ((Math.random() * 3) | 0)
       : e.chmp
       ? 1
-      : Math.random() < 0.28
+      : Math.random() < 0.28 * rm.flyDropMult
       ? 1
       : 0;
+    const flyCnt = Math.round(baseFlyCnt * (bo || e.chmp ? rm.flyDropMult : 1));
     if (flyCnt > 0) this.spawnGoldFlies(e.x, e.y, flyCnt);
 
     // Crystallized Larvae are genuinely rare & precious (only 2% from elite champions)
@@ -2738,6 +2953,7 @@ export class GameEngine {
     if (!this.me || this.me.dead || this.paused) return null;
     if (this.ST === 'camp') {
       if (Math.hypot(this.me.x - this.camp.shaman.x, this.me.y - this.camp.shaman.y) < 36) return 'XAMÃ';
+      if (Math.hypot(this.me.x - this.camp.pactAltar.x, this.me.y - this.camp.pactAltar.y) < 34) return 'RUNAS';
       for (const lg of this.camp.logs) {
         if (this.me.ch !== lg.c && Math.hypot(this.me.x - lg.x, this.me.y - lg.y) < 28) {
           return CH[lg.c].n.toUpperCase();
@@ -2822,6 +3038,11 @@ export class GameEngine {
         if (this.onOpenShaman) this.onOpenShaman();
         return;
       }
+      // 1b. Swamp Runes Pedestal in Camp
+      if (Math.hypot(this.me.x - this.camp.pactAltar.x, this.me.y - this.camp.pactAltar.y) < 34) {
+        if (this.onOpenRunes) this.onOpenRunes();
+        return;
+      }
       // 2. Switch Character on Logs
       for (const lg of this.camp.logs) {
         if (this.me.ch !== lg.c && Math.hypot(this.me.x - lg.x, this.me.y - lg.y) < 28) {
@@ -2842,9 +3063,10 @@ export class GameEngine {
           this.initPlayer(lg.c);
           this.me.x = ox;
           this.me.y = oy;
+          this.tongueReach = 18;
           if (this.me.w === 3) {
             const mouth = getFrogMouthOrigin(this.me.x, this.me.y, this.me.z, this.me.ang, 1, 0, 0);
-            this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, 84, 9);
+            this.tongueChain = initCastlevaniaWhipChain(mouth.x, mouth.y, this.me.ang, 18, 9);
           }
           this.pt(this.me.x, this.me.y, CH[this.me.ch].c, 22, 110, 0.55, 2.8);
           this.FT.push({
@@ -3358,7 +3580,8 @@ export class GameEngine {
     // Full Dynamic Enemy AI & Boss Patterns
     const cell = this.curCell();
     const pactSpdMult = this.pacts.includes('overload') ? 1.15 : 1.0;
-    const aggr = (1 + this.wd.bIdx * 0.08) * pactSpdMult;
+    const rm = this.getRuneModifiers();
+    const aggr = (1 + this.wd.bIdx * 0.08) * pactSpdMult * rm.enemySpdMult;
 
     for (const e of this.wd.en) {
       spring(e, dt);
@@ -4021,23 +4244,30 @@ export class GameEngine {
   }
 
   render() {
+    this.syncViewportSize();
     const g = this.ctx;
+    g.imageSmoothingEnabled = false;
     g.setTransform(Z, 0, 0, Z, 0, 0);
 
     if (this.ST === 'menu') {
+      g.fillStyle = '#081810';
+      g.fillRect(0, 0, this.viewW, this.viewH);
+      g.setTransform(Z, 0, 0, Z, this.viewOx * Z, this.viewOy * Z);
       drawMenuDiorama(this);
       return;
     }
 
-    g.fillStyle = '#040806';
-    g.fillRect(0, 0, W, H);
+    this.drawFullscreenMarginBackdrop(g);
+
+    const sx = (Math.random() - 0.5) * this.shake;
+    const sy = (Math.random() - 0.5) * this.shake;
     g.setTransform(
       Z,
       0,
       0,
       Z,
-      (Math.random() - 0.5) * this.shake * Z,
-      (Math.random() - 0.5) * this.shake * Z
+      Math.round((this.viewOx + sx) * Z),
+      Math.round((this.viewOy + sy) * Z)
     );
 
     if (this.ST === 'camp') {
@@ -4051,14 +4281,13 @@ export class GameEngine {
     if (this.me.w !== 3 || this.me.dead || this.tongueChain.length < 2) return;
     const g = this.ctx;
     const chain = this.tongueChain;
-    const tip = chain[chain.length - 1];
-    const r = 4.2 * Math.min(1.35, this.me.big || 1);
+    const extRatio = clamp(((this.tongueReach || 4.5) - 4.5) / 34, 0, 1);
+    const isAttacking = extRatio > 0.18;
 
     g.save();
-    g.lineCap = 'round';
-    g.lineJoin = 'round';
+    g.imageSmoothingEnabled = false;
 
-    const drawWhipPass = (offsetAng = 0, scaleLen = 1) => {
+    const drawPixelWhipPass = (offsetAng = 0, scaleLen = 1) => {
       const pts = chain.map((pt, idx) => {
         if (idx === 0 || offsetAng === 0) return pt;
         const dx = pt.x - chain[0].x;
@@ -4071,64 +4300,79 @@ export class GameEngine {
         };
       });
 
-      // 1. Dark organic outline
-      g.strokeStyle = '#3b0718';
-      g.lineWidth = 6.2;
-      g.beginPath();
-      g.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
-      g.stroke();
+      // Rasterize the whip segments into crisp stepped 2x2 pixel-art blocks
+      const cells: Array<{ x: number; y: number }> = [];
+      const pushCell = (wx: number, wy: number) => {
+        const gx = Math.round(wx / 2) * 2;
+        const gy = Math.round(wy / 2) * 2;
+        const last = cells[cells.length - 1];
+        if (!last || last.x !== gx || last.y !== gy) {
+          cells.push({ x: gx, y: gy });
+        }
+      };
 
-      // 2. Main fleshy whip tongue body
-      g.strokeStyle = '#ff4081';
-      g.lineWidth = 3.8;
-      g.beginPath();
-      g.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
-      g.stroke();
-
-      // 3. Wet specular highlight along the spine
-      g.strokeStyle = '#ff80ab';
-      g.lineWidth = 1.4;
-      g.beginPath();
-      g.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
-      g.stroke();
-
-      // 4. Articulated vertebral nodes along the whip (Castlevania Morning Star / Whip feel)
-      for (let i = 2; i < pts.length - 1; i += 2) {
-        g.fillStyle = '#f50057';
-        g.beginPath();
-        g.arc(pts[i].x, pts[i].y, 2.2, 0, 7);
-        g.fill();
+      pushCell(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        const p0 = pts[i - 1];
+        const p1 = pts[i];
+        const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+        const steps = Math.max(1, Math.ceil(dist / 1.8));
+        for (let s = 1; s <= steps; s++) {
+          const t = s / steps;
+          pushCell(p0.x + (p1.x - p0.x) * t, p0.y + (p1.y - p0.y) * t);
+        }
       }
 
-      // 5. Sticky curled tongue pad at the tip
-      const pTip = pts[pts.length - 1];
-      g.fillStyle = '#3b0718';
-      g.beginPath();
-      g.arc(pTip.x, pTip.y, r + 1.1, 0, 7);
-      g.fill();
+      if (cells.length === 0) return;
+      const tipCell = cells[cells.length - 1];
+      const coreSz = 2;
+      const tipSz = isAttacking ? 4 : 3;
+
+      // Pass 1: Crisp Dark Pixel Art Outline (#240612)
+      g.fillStyle = '#240612';
+      for (let i = 0; i < cells.length; i++) {
+        const c = cells[i];
+        g.fillRect(c.x - 1, c.y - 1, coreSz + 2, coreSz + 2);
+      }
+      g.fillRect(
+        tipCell.x - Math.floor(tipSz / 2) - 1,
+        tipCell.y - Math.floor(tipSz / 2) - 1,
+        tipSz + 2,
+        tipSz + 2
+      );
+
+      // Pass 2: Pixel Tongue Shadow Under-edge (#c2185b) & Main Pink Pixel Body (#ff4081)
+      for (let i = 0; i < cells.length; i++) {
+        const c = cells[i];
+        g.fillStyle = '#c2185b';
+        g.fillRect(c.x, c.y + 1, coreSz, coreSz);
+        g.fillStyle = i % 3 === 1 && isAttacking ? '#f50057' : '#ff4081';
+        g.fillRect(c.x, c.y, coreSz, coreSz);
+      }
+
+      // Pass 3: Pixel-Art Sticky Tongue Tip Cluster (rectangular pixel blocks, zero smooth arcs)
+      const tx = tipCell.x - Math.floor(tipSz / 2);
+      const ty = tipCell.y - Math.floor(tipSz / 2);
+      g.fillStyle = '#c2185b';
+      g.fillRect(tx, ty + 1, tipSz, tipSz);
       g.fillStyle = '#ff4081';
-      g.beginPath();
-      g.arc(pTip.x, pTip.y, r, 0, 7);
-      g.fill();
+      g.fillRect(tx, ty, tipSz, tipSz - 1);
+
+      // Pass 4: Crisp Pixel Specular Highlights (#ff80ab & #ffcdd2)
+      g.fillStyle = '#ff80ab';
+      for (let i = 1; i < cells.length - 1; i += 2) {
+        g.fillRect(cells[i].x, cells[i].y, 1, 1);
+      }
       g.fillStyle = '#ffcdd2';
-      g.beginPath();
-      g.arc(pTip.x - 1, pTip.y - 1, r * 0.42, 0, 7);
-      g.fill();
+      g.fillRect(tx + 1, ty + 1, isAttacking ? 2 : 1, isAttacking ? 2 : 1);
     };
 
-    if (this.me.syn['hydra'] || this.me.tri) {
-      drawWhipPass(-0.28, 0.88);
-      drawWhipPass(0.28, 0.88);
+    if ((this.me.syn['hydra'] || this.me.tri) && extRatio > 0.2) {
+      drawPixelWhipPass(-0.26 * extRatio, 0.86);
+      drawPixelWhipPass(0.26 * extRatio, 0.86);
     }
-    drawWhipPass(0, 1);
+    drawPixelWhipPass(0, 1);
 
-    // Subtle neon glow at the whip tip
-    g.globalCompositeOperation = 'lighter';
-    g.globalAlpha = 0.22;
-    g.drawImage(glow('#ff4081'), tip.x - r * 2.2, tip.y - r * 2.2, r * 4.4, r * 4.4);
     g.restore();
   }
 
@@ -4196,8 +4440,8 @@ export class GameEngine {
   drawMinimap() {
     if (!this.wd || !this.wd.grid) return;
     const g = this.ctx;
-    const mx = W - 62;
-    const my = 26;
+    const mx = W + this.viewOx - 62;
+    const my = -this.viewOy + 28;
     const sz = 9;
     const gap = 2;
 
@@ -4478,6 +4722,10 @@ export class GameEngine {
         e.preventDefault();
       }
 
+      if (e.code === 'F11') {
+        e.preventDefault();
+        this.toggleFullscreen();
+      }
       if (e.code === 'KeyM') {
         this.CFG.muted = !this.CFG.muted;
         this.saveProgress();
@@ -4504,6 +4752,10 @@ export class GameEngine {
       this.keys[e.code] = false;
     });
 
+    window.addEventListener('resize', () => {
+      this.syncViewportSize();
+    });
+
     window.addEventListener('blur', () => {
       this.keys = {};
       this.mouse.down = false;
@@ -4514,8 +4766,10 @@ export class GameEngine {
       if (this.touchState.lActive || this.touchState.rActive) return;
       const rect = this.canvas.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
-      this.mouse.x = clamp((e.clientX - rect.left) * (W / rect.width), 0, W);
-      this.mouse.y = clamp((e.clientY - rect.top) * (H / rect.height), 0, H);
+      const vx = (e.clientX - rect.left) * (this.viewW / rect.width) - this.viewOx;
+      const vy = (e.clientY - rect.top) * (this.viewH / rect.height) - this.viewOy;
+      this.mouse.x = clamp(vx, 0, W);
+      this.mouse.y = clamp(vy, 0, H);
       this.mouse.active = true;
     });
 

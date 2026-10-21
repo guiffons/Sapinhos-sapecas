@@ -1,41 +1,77 @@
-# Sapinhos Sapecas
+# 🐸 Sapinhos Sapecas
 
-Um roguelike de sapos meio loucos tentando sobreviver em masmorras. É aquele esquema clássico: bateu as botas, volta do zero. O jogo roda direto no navegador e tem multiplayer pra você arrastar seus amigos pra esse caos.
+Um **Action Roguelite 2D em Pixel Art** de sapos mutantes tentando sobreviver nas profundezas tóxicas do pântano! É aquele esquema clássico e frenético: entrou no brejo, acumulou mutações genéticas insanas, enfrentou chefões colossais e, se bater as botas, volta para o Acampamento para evoluir no Caldeirão do Velho Xamã.
 
-## O que tem no jogo?
+O jogo roda **100% direto no navegador (PC e Mobile)** com estética inspirada em *indie games* de Godot, botões elásticos estilo *Jelly* (geleia) e suporte a **Multiplayer Co-op Online P2P**.
 
-- Exploracao Roguelike: Entra na masmorra, pega uns itens, tenta nao morrer para os bichos.
-- Mapas Procedurais: O mapa é gerado na loucura na hora que você joga. Toda partida é um labirinto novo pra se perder.
-- Multiplayer Co-op P2P: Feito com PeerJS. Conecta direto com a maquina do seu amigo, sem precisar de servidor da NASA, so pra voces passarem raiva juntos.
-- Jogo de Browser: Nao precisa instalar nada pesado, é so abrir e jogar.
+---
 
-## O que foi usado pra fazer
+## 🎮 Principais Mecânicas & Novidades
 
-Tudo feito na raça com tecnologias da web:
+- **Língua Tipo Chicote (Mecânica Retrátil & Responsiva):**
+  - Quando em repouso, a língua do sapo fica pequenininha e discreta na ponta da boca.
+  - Ao clicar ou segurar o ataque, ela se estica rapidamente como um **chicote orgânico** com controle direcional fluido, varrendo inimigos, coletando Moscas Douradas/Corações à distância e aplicando empurrão (*knockback*) controlado que nunca joga os inimigos para fora da arena.
+- **Sistema de Runas do Pântano (Modificadores Globais de Run):**
+  - Antes de mergulhar no Poço da Masmorra (pelo Menu Inicial, Acampamento ou Pedra das Runas), o jogador pode equipar até **2 Runas Ancestrais** (*Runa da Voracidade*, *Carapaça Antiga*, *Frenesi Ácido*, *Cobiça Dourada*, *Chicote Elástico* e *Bio-Tempestade*).
+  - Cada runa concede **Bônus Globais poderosos** combinados com uma **Penalidade Tática**, além de orbitar visualmente o sapo durante a exploração.
+- **Mutações Visuais & Tooltips Detalhados na UI:**
+  - Mais de **20 Mutações Genéticas** que alteram o corpo do sapo em tempo real (chifres venenosos, auréola de esporos, glândulas ácidas, terceiro olho hipnótico, presas vampíricas).
+  - **Tooltips Informativos (Mouse, Teclado e Toque Mobile):** Passe o mouse ou toque em qualquer mutação na barra concisa do HUD, Menu ou Bestiário para inspecionar estatísticas exatas de **▲ Bônus**, **▼ Penalidades/Restrições**, **★ Afinidades Genéticas** e **Sinergias**.
+- **5 Sapos Jogáveis com Habilidades Bucais Únicas:**
+  - **Ribbit** (*Cuspe Ácido*), **Bull** (*Arroto de Girinos*), **Peeper** (*Metralha de Bolha*), **Dart** (*Língua-Chicote*) e **Goliath** (*Bomba de Muco*).
+- **Mapas Procedurais & Clima Dinâmico:**
+  - Masmorras geradas proceduralmente com salas multi-ondas, Lojas do Mercador Sapo, Altares de Pacto do Brejo e 5 Chefões únicos.
+- **Multiplayer Co-op P2P Real:**
+  - Conecte-se direto com seus amigos usando códigos de sala via WebRTC/PeerJS para explorar o pântano juntos sem bots.
 
-- HTML5 (Canvas): Pra desenhar os sapinhos e o mapa.
-- CSS3: Pra deixar as coisas menos feias.
-- JavaScript puro (Vanilla): Fazendo toda a magia acontecer, a fisica, os inimigos e o mapa infinito.
-- PeerJS: Pra conexão do multiplayer funcionar direto de um PC pro outro.
+---
 
-## Como rodar no seu PC
+## ✨ Inspirações
 
-Se quiser rodar pra fuçar nos códigos ou jogar localmente:
+O projeto nasceu da paixão por *roguelites* de ação rápida e *juiciness* retrô:
+- **Enter the Gungeon & Nuclear Throne:** Combate ágil, esquiva aérea (*Pulo-Z*), *screen shake* calibrado, *hit-stop* e armas/habilidades com personalidade.
+- **The Binding of Isaac:** Mutações que se acumulam visualmente no personagem e criam sinergias malucas a cada *run*.
+- **Forager & Estética Godot Indie:** Interface vibrante em Pixel Art, animações elásticas *squash-and-stretch* (botões *jelly*) e feedback visual imediato.
 
-1. Clona esse repositorio no seu PC.
-2. Abre a pasta do projeto.
-3. Importante: Nao abre o index.html direto dando dois cliques, senao o navegador bloqueia os scripts e dá ruim.
-4. Abre a pasta num editor tipo VSCode e usa a extensao Live Server (ou roda um npx http-server no terminal).
-5. Acessa o localhost no navegador e vai jogar.
+---
 
-## Controles
+## 🛠️ Como Está Sendo Feito (Arquitetura & Tecnologias)
 
-- WASD ou Setinhas pra andar.
-- Mouse pra mirar.
-- Clica pra bater/interagir (o resto você descobre na sorte).
+Construído com foco em performance de 60 FPS constantes tanto em desktops quanto em celulares:
+- **HTML5 Canvas + Sprites Matriciais Procedurais:** Todos os sprites de sapos, mutações, chefões e partículas são desenhados em matrizes de pixel art renderizadas em *offscreen canvases* com `image-rendering: pixelated`.
+- **TypeScript + React 19 + Tailwind CSS:** Arquitetura modular separando a física pura (`physics.ts`), geração de masmorras (`dungeon.ts`), sinergias (`synergies.ts`), renderizador pixel-art (`renderer.ts`) e motor de jogo (`engine.ts`).
+- **Web Audio API Sintetizada:** Efeitos sonoros retrô gerados proceduralmente sem depender de arquivos externos pesados.
+- **Controles Híbridos Adaptativos (PC & Mobile):** Suporte completo a Teclado + Mouse (com atalhos 100% reconfiguráveis) e **Joysticks Virtuais Multi-Touch** dedicados para telas móveis.
 
-## Quem fez
+---
 
-Criado por Guilherme Fonseca da Silva.
+## 🎯 Objetivos & Roadmap (Lançamento PC e Mobile)
+
+O grande objetivo do **Sapinhos Sapecas** é evoluir para um lançamento completo multiplataforma:
+1. **Versão PC (Steam / Itch.io / Web):** Empacotamento desktop com suporte a controles (Gamepad API), conquistas integradas e *leaderboards* de desafios diários (*Daily Seed*).
+2. **Versão Mobile (Android & iOS via PWA / Capacitor):** Experiência *touch-first* calibrada com HUD compacto, tooltips acionáveis por toque, vibração háptica e modo retrato/paisagem fluido.
+3. **Expansão do Brejo:** Novos biomas subterrâneos, mais combinações de Runas do Pântano e chefes secretos.
+
+---
+
+## 🚀 Como Rodar no Seu PC
+
+1. Clone este repositório no seu computador.
+2. Instale as dependências com `npm install`.
+3. Inicie o servidor de desenvolvimento com `npm run dev`.
+4. Acesse `http://localhost:3000` no seu navegador favorito e divirta-se!
+
+---
+
+## 🕹️ Controles
+
+- **PC:** `WASD` ou `Setas` para mover | `Mouse` para mirar | `Clique Esquerdo` para usar a Língua-Chicote / Cuspir | `Espaço` ou `Clique Direito` para Pulo-Z | `E` para interagir com Altares, Runas, Baús e Xamã.
+- **Mobile:** Joystick esquerdo para mover | Joystick direito para mirar e atacar | Botões de ação *Jelly* para Pulo-Z e Interação.
+
+---
+
+## 👨‍💻 Quem Fez
+
+Criado por **Guilherme Fonseca da Silva**.
 
 uebeti 🐸

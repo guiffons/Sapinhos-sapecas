@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GameEngine } from '../game/engine.ts';
+import { CH, MUTATION_DETAILS, SWAMP_RUNES, RAR_INFO, IT } from '../game/constants.ts';
 import { PixelIcon } from './TitleScreen.tsx';
 
 interface GameHUDProps {
@@ -8,6 +9,7 @@ interface GameHUDProps {
   onRestart: () => void;
   onOpenOptions: () => void;
   onOpenCodex?: () => void;
+  onOpenRunes?: () => void;
 }
 
 export const GameHUD: React.FC<GameHUDProps> = ({
@@ -16,6 +18,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onRestart,
   onOpenOptions,
   onOpenCodex,
+  onOpenRunes,
 }) => {
   const [netRoom, setNetRoom] = useState<string>(engine?.netRoom || '');
   const [onlineCount, setOnlineCount] = useState<number>(
@@ -36,15 +39,20 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   });
   const [interactLabel, setInteractLabel] = useState<string | null>(null);
   const [jumpReady, setJumpReady] = useState<boolean>(true);
+  const [mutations, setMutations] = useState<number[]>([]);
+  const [activeRunes, setActiveRunes] = useState<string[]>([]);
+  const [charIdx, setCharIdx] = useState<number>(0);
+  const [stageState, setStageState] = useState<string>(engine?.ST || 'camp');
+
+  // Active tooltip state for Mutations or Swamp Runes (supports mouse hover, keyboard focus, and mobile tap)
+  const [inspectedMutId, setInspectedMutId] = useState<number | null>(null);
+  const [inspectedRuneId, setInspectedRuneId] = useState<string | null>(null);
 
   const leftPadRef = useRef<HTMLDivElement | null>(null);
   const rightPadRef = useRef<HTMLDivElement | null>(null);
   const leftPointerId = useRef<number | null>(null);
   const rightPointerId = useRef<number | null>(null);
 
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-
-  // Detect mobile viewport or CFG.touch preference and poll lightweight HUD indicators
   useEffect(() => {
     const checkTouchMode = () => {
       if (!engine) return;
@@ -62,35 +70,35 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       }
     };
 
-    const handleFsChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-
     const syncNet = () => {
       if (!engine) return;
       setNetRoom(engine.netRoom || '');
       setOnlineCount(Object.keys(engine.netPlayers).length);
     };
 
-    checkTouchMode();
-    handleFsChange();
-    syncNet();
-    window.addEventListener('resize', checkTouchMode);
-    document.addEventListener('fullscreenchange', handleFsChange);
-    window.addEventListener('sapo-net-update', syncNet);
-
-    const interval = setInterval(() => {
+    const syncHudState = () => {
       if (!engine) return;
       checkTouchMode();
       syncNet();
       setInteractLabel(engine.getNearbyInteractable());
       setJumpReady((engine.me?.jumpCd || 0) <= 0.02);
-    }, 100);
+      setMutations([...(engine.me?.its || [])]);
+      setActiveRunes([...(engine.activeRunes || [])]);
+      setCharIdx(engine.me?.ch ?? 0);
+      setStageState(engine.ST);
+    };
+
+    syncHudState();
+    window.addEventListener('resize', checkTouchMode);
+    window.addEventListener('sapo-net-update', syncNet);
+    window.addEventListener('sapo-progress-update', syncHudState);
+
+    const interval = setInterval(syncHudState, 100);
 
     return () => {
       window.removeEventListener('resize', checkTouchMode);
-      document.removeEventListener('fullscreenchange', handleFsChange);
       window.removeEventListener('sapo-net-update', syncNet);
+      window.removeEventListener('sapo-progress-update', syncHudState);
       clearInterval(interval);
     };
   }, [engine]);
@@ -100,25 +108,6 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       setRoomInput(engine.netRoom);
     }
     setShowCoopPopover((v) => !v);
-  };
-
-  const handleToggleTouchControls = () => {
-    if (!engine) return;
-    const next = showTouch ? 'off' : 'on';
-    engine.CFG.touch = next;
-    engine.saveProgress();
-    setShowTouch(next === 'on');
-    engine.snd(420, 0.08, 'triangle', 0.06, 120);
-  };
-
-  const handleToggleFullscreen = () => {
-    if (engine) {
-      engine.toggleFullscreen();
-    } else if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.().catch(() => {});
-    } else {
-      document.exitFullscreen?.().catch(() => {});
-    }
   };
 
   // Left Analog / D-Pad Stick Handler (Movement)
@@ -161,7 +150,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     setMoveVec({ x: 0, y: 0, active: false });
   };
 
-  // Right Analog Twin-Stick Handler (360° Aim & Auto-Spit)
+  // Right Analog Twin-Stick Handler (360° Aim & Whip/Spit)
   const updateRightStick = (clientX: number, clientY: number) => {
     const el = rightPadRef.current;
     if (!el || !engine) return;
@@ -177,7 +166,6 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     let nx = dist > 4 ? (dx / dist) * (clampedDist / maxR) : 0;
     let ny = dist > 4 ? (dy / dist) * (clampedDist / maxR) : 0;
 
-    // If tapped near center, aim & fire in current facing direction
     if (dist <= 4 && engine.me) {
       nx = Math.cos(engine.me.ang) * 0.65;
       ny = Math.sin(engine.me.ang) * 0.65;
@@ -212,40 +200,75 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     setAimVec({ x: 0, y: 0, active: false });
   };
 
+  // Group collected mutations by ID with stack counts for a concise, clean bar
+  const groupedMutations: Array<{ id: number; count: number }> = [];
+  for (const mId of mutations) {
+    const existing = groupedMutations.find((g) => g.id === mId);
+    if (existing) existing.count++;
+    else groupedMutations.push({ id: mId, count: 1 });
+  }
+
+  // If no mutations collected yet, show the current frog's affinity mutations so player can inspect tooltips anytime
+  const affinityMutations = CH[charIdx]?.aff || [0, 1];
+  const displayMutations: Array<{ id: number; count: number; isPreview?: boolean }> =
+    groupedMutations.length > 0
+      ? groupedMutations
+      : affinityMutations.slice(0, 3).map((id) => ({ id, count: 0, isPreview: true }));
+
+  const activeMutDetail = inspectedMutId !== null ? MUTATION_DETAILS[inspectedMutId] : null;
+  const activeRuneDetail =
+    inspectedRuneId !== null ? SWAMP_RUNES.find((r) => r.id === inspectedRuneId) || null : null;
+
   return (
     <>
-      {/* Top Right Pixel-Art Arcade Action Bar (Responsive & With Real Online Co-op & Fullscreen Toggle) */}
-      <div className="fixed top-1.5 right-1.5 sm:top-2 sm:right-2.5 z-30 flex flex-wrap items-center justify-end gap-1 sm:gap-1.5 pointer-events-auto select-none max-w-[72vw]">
+      {/* Streamlined Top-Right Godot Pixel-Art Action Bar (Zero Unnecessary Buttons, Jelly Physics) */}
+      <div className="fixed top-1.5 right-1.5 sm:top-2 sm:right-2.5 z-30 flex flex-wrap items-center justify-end gap-1.5 pointer-events-auto select-none max-w-[76vw] font-pixel">
+        {onOpenRunes && (
+          <button
+            onClick={onOpenRunes}
+            data-testid="hud-btn-runes"
+            className="btn-jelly px-2 py-1 bg-[#280e4a] hover:bg-[#3b156b] border-2 border-[#ffd54f] text-[9px] sm:text-[10px] font-black text-[#ffd54f] shadow-[0_3px_0_#0f041d] cursor-pointer flex items-center gap-1"
+            title="Equipar Runas do Pântano (Modificadores Globais da Exploração)"
+          >
+            <PixelIcon sprite={engine?.S?.shrine} size={13} />
+            <span>RUNAS ({activeRunes.length}/2)</span>
+          </button>
+        )}
+
         <button
           onClick={handleToggleCoopPopover}
           data-testid="hud-btn-coop"
-          className={`px-1.5 sm:px-2 py-1 border-2 font-mono text-[9px] sm:text-[11px] font-black shadow-[0_3px_0_#040805] active:translate-y-0.5 cursor-pointer transition-all flex items-center gap-1 ${
+          className={`btn-jelly px-2 py-1 border-2 text-[9px] sm:text-[10px] font-black shadow-[0_3px_0_#040805] cursor-pointer flex items-center gap-1 ${
             netRoom
               ? 'bg-[#004d40] border-[#00e5ff] text-[#84ffff]'
               : 'bg-[#0c1a12ee] hover:bg-[#162e20] border-[#66bb6a] text-[#e8f5e9]'
           }`}
-          title="Sala Co-op Online em Tempo Real (Sem Bot)"
+          title="Sala Co-op Online em Tempo Real"
         >
           <PixelIcon sprite={engine?.S?.pIdle?.[1]} size={13} />
           <span className="hidden xs:inline">
-            {netRoom ? `SALA: ${netRoom.toUpperCase()} (${onlineCount + 1}P)` : 'CO-OP ONLINE'}
+            {netRoom ? `SALA: ${netRoom.toUpperCase()} (${onlineCount + 1}P)` : 'CO-OP'}
           </span>
         </button>
 
-        <button
-          onClick={onGoCamp}
-          className="px-1.5 sm:px-2 py-1 bg-[#0c1a12ee] hover:bg-[#162e20] border-2 border-[#66bb6a] font-mono text-[9px] sm:text-[11px] font-black text-[#ffd54f] shadow-[0_3px_0_#040805] active:translate-y-0.5 cursor-pointer transition-all flex items-center gap-1"
-          title="Voltar ao Acampamento da Fogueira"
-        >
-          <PixelIcon sprite={engine?.S?.campfire?.[0]} size={13} />
-          <span className="hidden sm:inline">ACAMP.</span>
-        </button>
+        {stageState === 'play' && (
+          <button
+            onClick={onGoCamp}
+            data-testid="hud-btn-camp"
+            className="btn-jelly px-2 py-1 bg-[#0c1a12ee] hover:bg-[#162e20] border-2 border-[#66bb6a] text-[9px] sm:text-[10px] font-black text-[#ffd54f] shadow-[0_3px_0_#040805] cursor-pointer flex items-center gap-1"
+            title="Voltar ao Acampamento da Fogueira"
+          >
+            <PixelIcon sprite={engine?.S?.campfire?.[0]} size={13} />
+            <span className="hidden sm:inline">ACAMP.</span>
+          </button>
+        )}
 
         {onOpenCodex && (
           <button
             onClick={onOpenCodex}
-            className="px-1.5 sm:px-2 py-1 bg-[#0c1a12ee] hover:bg-[#162e20] border-2 border-[#ab47bc] font-mono text-[9px] sm:text-[11px] font-black text-[#e1bee7] shadow-[0_3px_0_#040805] active:translate-y-0.5 cursor-pointer transition-all flex items-center gap-1"
-            title="Bestiário & Habilidades"
+            data-testid="hud-btn-codex"
+            className="btn-jelly px-2 py-1 bg-[#0c1a12ee] hover:bg-[#162e20] border-2 border-[#ab47bc] text-[9px] sm:text-[10px] font-black text-[#e1bee7] shadow-[0_3px_0_#040805] cursor-pointer flex items-center gap-1"
+            title="Bestiário, Mutações & Runas"
           >
             <PixelIcon sprite={engine?.S?.bookIc} size={13} />
             <span className="hidden md:inline">GUIA</span>
@@ -253,60 +276,213 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         )}
 
         <button
-          onClick={handleToggleTouchControls}
-          className={`px-1.5 sm:px-2 py-1 border-2 font-mono text-[9px] sm:text-[11px] font-black shadow-[0_3px_0_#040805] active:translate-y-0.5 cursor-pointer transition-all flex items-center gap-1 ${
-            showTouch
-              ? 'bg-[#004d40] border-[#00e5ff] text-[#84ffff]'
-              : 'bg-[#0c1a12ee] hover:bg-[#162e20] border-[#66bb6a] text-[#a5d6a7]'
-          }`}
-          title="Alternar Controles Touch Mobile na Tela"
-          aria-label="Alternar Controles Mobile"
-        >
-          <PixelIcon sprite={engine?.S?.joyIc} size={13} />
-          <span className="hidden md:inline">TOUCH</span>
-        </button>
-
-        {/* Fullscreen Button Directly In-Game for Mobile & Desktop */}
-        <button
-          onClick={handleToggleFullscreen}
+          onClick={() => {
+            if (engine) {
+              engine.toggleFullscreen();
+            } else if (!document.fullscreenElement) {
+              document.documentElement.requestFullscreen?.().catch(() => {});
+            } else {
+              document.exitFullscreen?.().catch(() => {});
+            }
+          }}
           data-testid="hud-btn-fullscreen"
-          className={`px-1.5 sm:px-2 py-1 border-2 font-mono text-[9px] sm:text-[11px] font-black shadow-[0_3px_0_#040805] active:translate-y-0.5 cursor-pointer transition-all flex items-center gap-1 ${
-            isFullscreen
-              ? 'bg-[#004d40] border-[#ffd54f] text-[#ffd54f]'
-              : 'bg-[#0c1a12ee] hover:bg-[#162e20] border-[#ffd54f] text-[#fff59d]'
-          }`}
-          title="Alternar Tela Cheia (Fullscreen)"
-          aria-label="Tela Cheia"
+          className="btn-jelly px-2 py-1 bg-[#0c1a12ee] hover:bg-[#162e20] border-2 border-[#66bb6a] text-[9px] sm:text-[10px] text-[#e8f5e9] shadow-[0_3px_0_#040805] cursor-pointer flex items-center gap-1"
+          title="Alternar Tela Cheia (F11)"
+          aria-label="Alternar Tela Cheia"
         >
-          <PixelIcon sprite={engine?.S?.fs} size={13} />
-          <span className="hidden xs:inline">{isFullscreen ? 'SAIR' : 'TELA'}</span>
-        </button>
-
-        <button
-          onClick={onRestart}
-          className="px-1.5 sm:px-2 py-1 bg-[#0c1a12ee] hover:bg-[#162e20] border-2 border-[#66bb6a] font-mono text-[9px] sm:text-[11px] font-black text-[#e8f5e9] shadow-[0_3px_0_#040805] active:translate-y-0.5 cursor-pointer transition-all flex items-center gap-1"
-          title="Nova Run (R)"
-          aria-label="Reiniciar Partida"
-        >
-          <PixelIcon sprite={engine?.S?.rst} size={12} />
-          <span className="hidden sm:inline">R</span>
+          <PixelIcon sprite={engine?.S?.fs} size={12} />
         </button>
 
         <button
           onClick={onOpenOptions}
-          className="px-1.5 sm:px-2 py-1 bg-[#0c1a12ee] hover:bg-[#162e20] border-2 border-[#66bb6a] font-mono text-[9px] sm:text-[11px] font-black text-[#e8f5e9] shadow-[0_3px_0_#040805] active:translate-y-0.5 cursor-pointer transition-all flex items-center gap-1"
-          title="Opções / Pausa (ESC)"
+          data-testid="hud-btn-options"
+          className="btn-jelly px-2 py-1 bg-[#0c1a12ee] hover:bg-[#162e20] border-2 border-[#66bb6a] text-[9px] sm:text-[10px] text-[#e8f5e9] shadow-[0_3px_0_#040805] cursor-pointer flex items-center gap-1"
+          title="Menu de Pausa, Opções, Tela Cheia e Controles (ESC)"
           aria-label="Opções e Pausa"
         >
           <PixelIcon sprite={engine?.S?.gear} size={12} />
-          <span className="hidden sm:inline">ESC</span>
+          <span className="hidden sm:inline">MENU</span>
         </button>
       </div>
 
-      {/* Inline Real Online Multiplayer Co-op Room Popover (Zero Bots) */}
+      {/* Concise Interactive Mutation & Swamp Rune Icon Bar (Top-Left below economy box — Zero text clutter!) */}
+      <div
+        className={`fixed z-30 pointer-events-auto select-none font-pixel left-2 ${
+          stageState === 'camp' ? 'top-13' : 'top-21'
+        } max-w-[65vw]`}
+        data-testid="hud-mutation-bar"
+      >
+        {/* Pure Pixel Icon Strip of Equipped Runes & Active/Affinity Mutations */}
+        <div className="flex flex-wrap items-center gap-1 bg-[#050d08dd] border-2 border-[#2e573c] px-1.5 py-1 shadow-[3px_3px_0_#000]">
+          {/* Equipped Swamp Runes */}
+          {activeRunes.map((rId) => {
+            const rDef = SWAMP_RUNES.find((r) => r.id === rId);
+            if (!rDef) return null;
+            const isSel = inspectedRuneId === rId;
+            return (
+              <button
+                key={rId}
+                type="button"
+                data-testid={`hud-rune-slot-${rId}`}
+                onMouseEnter={() => {
+                  setInspectedMutId(null);
+                  setInspectedRuneId(rId);
+                }}
+                onMouseLeave={() => setInspectedRuneId((cur) => (cur === rId ? null : cur))}
+                onFocus={() => {
+                  setInspectedMutId(null);
+                  setInspectedRuneId(rId);
+                }}
+                onClick={() => {
+                  setInspectedMutId(null);
+                  setInspectedRuneId(rId);
+                }}
+                aria-label={`Runa Equipada: ${rDef.nm}`}
+                className={`btn-jelly relative w-7 h-7 border-2 flex items-center justify-center cursor-pointer ${
+                  isSel ? 'bg-[#311b47] border-[#ffd54f]' : 'bg-[#1a0d2a] border-[#ea80fc]'
+                }`}
+              >
+                <PixelIcon sprite={engine?.S?.items?.[rDef.ic]} size={16} />
+                <span className="absolute -top-1 -right-1 text-[7px] bg-[#4a148c] text-[#ffd54f] px-0.5 border border-[#ffd54f]">
+                  R
+                </span>
+              </button>
+            );
+          })}
+
+          {activeRunes.length > 0 && <span className="text-[#2e573c] text-[10px]">|</span>}
+
+          {displayMutations.map((m) => {
+            const rar = RAR_INFO[IT[m.id]?.[2] || 0] || RAR_INFO[0];
+            const det = MUTATION_DETAILS[m.id];
+            const isSel = inspectedMutId === m.id;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                data-testid={`hud-mutation-slot-${m.id}`}
+                onMouseEnter={() => {
+                  setInspectedRuneId(null);
+                  setInspectedMutId(m.id);
+                }}
+                onMouseLeave={() => setInspectedMutId((cur) => (cur === m.id ? null : cur))}
+                onFocus={() => {
+                  setInspectedRuneId(null);
+                  setInspectedMutId(m.id);
+                }}
+                onClick={() => {
+                  setInspectedRuneId(null);
+                  setInspectedMutId(m.id);
+                }}
+                aria-label={`Mutação ${det?.name || IT[m.id]?.[0] || m.id}`}
+                style={{ borderColor: isSel ? '#ffd54f' : rar.col }}
+                className={`btn-jelly relative w-7 h-7 border-2 flex items-center justify-center cursor-pointer ${
+                  m.isPreview ? 'bg-[#08140d] opacity-80 hover:opacity-100' : 'bg-[#102418]'
+                }`}
+              >
+                <PixelIcon sprite={engine?.S?.items?.[m.id]} size={16} />
+                {m.count > 1 && (
+                  <span className="absolute -bottom-1 -right-1 text-[8px] font-black bg-[#040a06] text-[#ffd54f] px-0.5 border border-[#ffd54f] tabular-nums">
+                    x{m.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Rich Interactive Tooltip Card on Hover / Focus / Tap */}
+        {(activeMutDetail || activeRuneDetail) && (
+          <div
+            role="tooltip"
+            data-testid="hud-mutation-tooltip"
+            className="mt-1.5 w-72 sm:w-80 bg-[#050d08f8] border-2 border-[#ffd54f] p-3 shadow-[5px_5px_0_#000] text-left space-y-1.5"
+          >
+            {activeMutDetail && (
+              <>
+                <div className="flex items-center justify-between gap-2 border-b-2 border-[#1e3a27] pb-1">
+                  <div className="flex items-center gap-1.5">
+                    <PixelIcon sprite={engine?.S?.items?.[activeMutDetail.id]} size={18} />
+                    <span className="font-black text-xs text-[#ffd54f] font-pixel-title">
+                      {activeMutDetail.name}
+                    </span>
+                  </div>
+                  <span
+                    className="text-[9px] font-black px-1.5 py-0.5 border border-black/50"
+                    style={{ color: activeMutDetail.rarityColor }}
+                  >
+                    {activeMutDetail.rarityName}
+                  </span>
+                </div>
+
+                <div className="text-[10px] text-[#b0bec5]">{activeMutDetail.tagline}</div>
+
+                {/* Bonuses */}
+                <div className="bg-[#091c12] border border-[#2e7d32] p-1.5 space-y-0.5">
+                  <div className="text-[9px] font-black text-[#69f0ae]">BÔNUS DA MUTAÇÃO:</div>
+                  {activeMutDetail.bonuses.map((b, i) => (
+                    <div key={i} className="text-[10px] text-[#e8f5e9] leading-tight">
+                      + {b}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Penalties / Trade-offs */}
+                <div className="bg-[#1f0c0e] border border-[#c62828] p-1.5 space-y-0.5">
+                  <div className="text-[9px] font-black text-[#ff8a80]">
+                    PENALIDADE / RESTRIÇÃO:
+                  </div>
+                  {activeMutDetail.penalties.map((p, i) => (
+                    <div key={i} className="text-[10px] text-[#ffcdd2] leading-tight">
+                      - {p}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Affinity & Synergies */}
+                <div className="flex flex-col gap-0.5 pt-0.5 text-[9px]">
+                  <span className="text-[#84ffff]">
+                    <strong className="text-[#00e5ff]">AFINIDADE:</strong>{' '}
+                    {activeMutDetail.affinityText}
+                  </span>
+                  {activeMutDetail.synergyNames.length > 0 && (
+                    <span className="text-[#ffe082]">
+                      <strong className="text-[#ffd54f]">SINERGIAS:</strong>{' '}
+                      {activeMutDetail.synergyNames.join(' · ')}
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+
+            {activeRuneDetail && !activeMutDetail && (
+              <>
+                <div className="flex items-center justify-between gap-2 border-b-2 border-[#311b47] pb-1">
+                  <div className="flex items-center gap-1.5">
+                    <PixelIcon sprite={engine?.S?.items?.[activeRuneDetail.ic]} size={18} />
+                    <span className="font-black text-xs text-[#ffd54f] font-pixel-title">
+                      {activeRuneDetail.nm.toUpperCase()}
+                    </span>
+                  </div>
+                  <span className="text-[9px] font-black text-[#ea80fc]">RUNA DO PÂNTANO</span>
+                </div>
+                <div className="text-[10px] text-[#e1bee7]">{activeRuneDetail.ds}</div>
+                <div className="bg-[#091c12] border border-[#2e7d32] p-1.5 text-[10px] text-[#69f0ae]">
+                  <strong>+ BÔNUS GLOBAL:</strong> {activeRuneDetail.boon}
+                </div>
+                <div className="bg-[#1f0c0e] border border-[#c62828] p-1.5 text-[10px] text-[#ff8a80]">
+                  <strong>- PENALIDADE:</strong> {activeRuneDetail.penalty}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Inline Real Online Multiplayer Co-op Room Popover */}
       {showCoopPopover && engine && (
         <div
-          className="fixed top-11 right-2 z-40 w-72 bg-[#071418f5] border-2 border-[#00e5ff] p-3 shadow-[6px_6px_0_#000] font-mono text-xs select-none pointer-events-auto"
+          className="fixed top-11 right-2 z-40 w-72 bg-[#071418f5] border-2 border-[#00e5ff] p-3 shadow-[6px_6px_0_#000] font-pixel text-xs select-none pointer-events-auto"
           data-testid="hud-coop-popover"
         >
           <div className="flex items-center justify-between border-b border-[#006064] pb-1.5 mb-2">
@@ -315,7 +491,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </span>
             <button
               onClick={() => setShowCoopPopover(false)}
-              className="text-[10px] font-bold text-[#84ffff] hover:text-white cursor-pointer"
+              className="btn-jelly text-[10px] font-bold text-[#84ffff] hover:text-white cursor-pointer"
             >
               [X]
             </button>
@@ -333,7 +509,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 engine.joinMultiplayerRoom(roomInput || 'sapo01');
                 setNetRoom(engine.netRoom);
               }}
-              className="px-2.5 py-1 bg-[#00acc1] hover:bg-[#00e5ff] text-[#041014] font-black text-[10px] border border-white cursor-pointer"
+              className="btn-jelly px-2.5 py-1 bg-[#00acc1] hover:bg-[#00e5ff] text-[#041014] font-black text-[10px] border border-white cursor-pointer"
             >
               CONECTAR
             </button>
@@ -341,7 +517,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           {netRoom ? (
             <div className="space-y-1.5 text-[10px] text-[#b2ebf2]">
               <div className="flex items-center justify-between bg-[#040d10] px-2 py-1 border border-[#006064]">
-                <span>SALA ATIVA: <strong className="text-[#ffd54f]">{netRoom.toUpperCase()}</strong></span>
+                <span>
+                  SALA ATIVA: <strong className="text-[#ffd54f]">{netRoom.toUpperCase()}</strong>
+                </span>
                 <span>{onlineCount + 1} JOGADOR(ES)</span>
               </div>
               <div className="flex gap-1.5">
@@ -357,7 +535,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                       l: 1.4,
                     });
                   }}
-                  className="flex-1 py-1 bg-[#0d262c] hover:bg-[#143942] border border-[#00e5ff] text-[#84ffff] font-bold cursor-pointer"
+                  className="btn-jelly flex-1 py-1 bg-[#0d262c] hover:bg-[#143942] border border-[#00e5ff] text-[#84ffff] font-bold cursor-pointer"
                 >
                   COPIAR LINK
                 </button>
@@ -366,7 +544,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                     engine.leaveMultiplayerRoom();
                     setNetRoom('');
                   }}
-                  className="px-2.5 py-1 bg-[#4a1218] hover:bg-[#6d1b24] border border-[#ff5252] text-[#ffcdd2] font-bold cursor-pointer"
+                  className="btn-jelly px-2.5 py-1 bg-[#4a1218] hover:bg-[#6d1b24] border border-[#ff5252] text-[#ffcdd2] font-bold cursor-pointer"
                 >
                   SAIR
                 </button>
@@ -374,7 +552,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </div>
           ) : (
             <div className="text-[10px] text-[#80cbc4]">
-              Digite o mesmo código que seu amigo (ou abra outra aba com o mesmo código) para jogar juntos de verdade!
+              Digite o mesmo código que seu amigo para explorarem a masmorra juntos!
             </div>
           )}
         </div>
@@ -383,15 +561,12 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       {/* Responsive Pixel-Art Mobile Twin-Stick & Action Controls */}
       {showTouch && (
         <div
-          className="fixed inset-x-0 bottom-0 z-30 pointer-events-none select-none flex items-end justify-between p-2.5 sm:p-5"
+          className="fixed inset-x-0 bottom-0 z-30 pointer-events-none select-none flex items-end justify-between p-2.5 sm:p-5 font-pixel"
           data-testid="mobile-controls"
         >
-          {/* LEFT PIXEL-ART ANALOG D-PAD (MOVEMENT - CLEAN KNOB WITHOUT FROG ICON) */}
+          {/* LEFT PIXEL-ART ANALOG D-PAD (MOVEMENT) */}
           <div className="flex flex-col items-center gap-1 pointer-events-auto">
-            <span
-              className="text-[7px] sm:text-[8px] font-black tracking-wider text-[#a5d6a7] bg-[#06100acc] px-1.5 py-0.5 border border-[#2e573c]"
-              style={{ fontFamily: '"Press Start 2P", monospace' }}
-            >
+            <span className="text-[7px] sm:text-[8px] font-black tracking-wider text-[#a5d6a7] bg-[#06100acc] px-1.5 py-0.5 border border-[#2e573c] font-pixel-title">
               ANDAR
             </span>
             <div
@@ -422,7 +597,6 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 moveVec.active ? 'border-[#69f0ae]' : 'border-[#4caf50]'
               }`}
             >
-              {/* Pixel-Art Cross D-Pad Guides */}
               <div className="absolute inset-2.5 pointer-events-none flex items-center justify-center">
                 <div className="w-full h-5 bg-[#0d2418] border border-[#1e462d]" />
               </div>
@@ -430,37 +604,6 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 <div className="h-full w-5 bg-[#0d2418] border border-[#1e462d]" />
               </div>
 
-              {/* Directional Pixel Highlights */}
-              <div
-                className={`absolute top-1.5 w-2.5 h-1.5 border ${
-                  moveVec.y < -0.35
-                    ? 'bg-[#69f0ae] border-white'
-                    : 'bg-[#1b3b26] border-[#2e573c]'
-                }`}
-              />
-              <div
-                className={`absolute bottom-1.5 w-2.5 h-1.5 border ${
-                  moveVec.y > 0.35
-                    ? 'bg-[#69f0ae] border-white'
-                    : 'bg-[#1b3b26] border-[#2e573c]'
-                }`}
-              />
-              <div
-                className={`absolute left-1.5 w-1.5 h-2.5 border ${
-                  moveVec.x < -0.35
-                    ? 'bg-[#69f0ae] border-white'
-                    : 'bg-[#1b3b26] border-[#2e573c]'
-                }`}
-              />
-              <div
-                className={`absolute right-1.5 w-1.5 h-2.5 border ${
-                  moveVec.x > 0.35
-                    ? 'bg-[#69f0ae] border-white'
-                    : 'bg-[#1b3b26] border-[#2e573c]'
-                }`}
-              />
-
-              {/* Clean Geometric Pixel Thumbstick Knob (No Frog Sprite!) */}
               <div
                 style={{
                   transform: `translate(${Math.round(moveVec.x * 28)}px, ${Math.round(
@@ -484,11 +627,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </div>
           </div>
 
-          {/* RIGHT PIXEL-ART ACTION CLUSTER + 360° AIM & MOUTH ATTACK STICK */}
+          {/* RIGHT PIXEL-ART ACTION CLUSTER + 360° AIM & WHIP/SPIT STICK */}
           <div className="flex items-end gap-2 sm:gap-3 pointer-events-auto">
-            {/* Essential Action Buttons Column (PULO-Z & Contextual USAR [E] Only) */}
             <div className="flex flex-col gap-2">
-              {/* Contextual USAR [E] Button - Prominent when near an interactable */}
               {interactLabel && (
                 <button
                   onPointerDown={(e) => {
@@ -497,19 +638,16 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   }}
                   data-testid="mobile-btn-interact"
                   aria-label="Interagir ou Usar Objeto"
-                  className="relative w-14 h-12 sm:w-16 sm:h-13 border-2 bg-[#2e7d32] border-[#ffd54f] text-[#fff9c4] font-mono font-black text-[10px] shadow-[3px_3px_0_#000] active:translate-y-0.5 flex flex-col items-center justify-center gap-0.5 cursor-pointer touch-none animate-pulse"
+                  className="btn-jelly relative w-14 h-12 sm:w-16 sm:h-13 border-2 bg-[#2e7d32] border-[#ffd54f] text-[#fff9c4] font-black text-[10px] shadow-[3px_3px_0_#000] flex flex-col items-center justify-center gap-0.5 cursor-pointer touch-none"
                 >
                   <PixelIcon sprite={engine?.S?.handIc} size={15} />
-                  <span style={{ fontFamily: '"Press Start 2P", monospace' }} className="text-[7px]">
-                    USAR!
-                  </span>
+                  <span className="text-[7px] font-pixel-title">USAR!</span>
                   <span className="text-[8px] text-[#ffe082] truncate max-w-[52px]">
                     {interactLabel}
                   </span>
                 </button>
               )}
 
-              {/* PULO-Z Dodge Jump Button */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -517,29 +655,23 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 }}
                 data-testid="mobile-btn-jump"
                 aria-label="Pulo Esquiva Eixo Z"
-                className={`relative w-14 h-12 sm:w-16 sm:h-14 border-2 font-mono font-black text-[10px] shadow-[3px_3px_0_#000] active:translate-y-0.5 flex flex-col items-center justify-center gap-0.5 cursor-pointer touch-none transition-colors ${
+                className={`btn-jelly relative w-14 h-12 sm:w-16 sm:h-14 border-2 font-black text-[10px] shadow-[3px_3px_0_#000] flex flex-col items-center justify-center gap-0.5 cursor-pointer touch-none ${
                   jumpReady
                     ? 'bg-[#0277bd] hover:bg-[#0288d1] border-[#81d4fa] text-white'
                     : 'bg-[#0b2230] border-[#264b62] text-[#78909c]'
                 }`}
               >
                 <PixelIcon sprite={engine?.S?.bootIc} size={15} />
-                <span style={{ fontFamily: '"Press Start 2P", monospace' }} className="text-[7px]">
-                  PULO
-                </span>
+                <span className="text-[7px] font-pixel-title">PULO</span>
                 <span className="text-[8px] text-[#b3e5fc]">
                   {jumpReady ? 'PRONTO' : 'RECARG'}
                 </span>
               </button>
             </div>
 
-            {/* Right 360° Aim & Mouth Spit Stick */}
             <div className="flex flex-col items-center gap-1">
-              <span
-                className="text-[7px] sm:text-[8px] font-black tracking-wider text-[#ff8a80] bg-[#1a080bcc] px-1.5 py-0.5 border border-[#b71c1c]"
-                style={{ fontFamily: '"Press Start 2P", monospace' }}
-              >
-                MIRAR / CUSPIR
+              <span className="text-[7px] sm:text-[8px] font-black tracking-wider text-[#ff8a80] bg-[#1a080bcc] px-1.5 py-0.5 border border-[#b71c1c] font-pixel-title">
+                MIRAR / ATACAR
               </span>
               <div
                 ref={rightPadRef}
@@ -569,12 +701,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   aimVec.active ? 'border-[#ffd54f]' : 'border-[#ff5252]'
                 }`}
               >
-                {/* Pixel Reticle Grid Inside Right Pad */}
                 <div className="absolute inset-3.5 border border-dashed border-[#ff525255] pointer-events-none" />
                 <div className="absolute w-full h-[2px] bg-[#ff525233] pointer-events-none" />
                 <div className="absolute h-full w-[2px] bg-[#ff525233] pointer-events-none" />
 
-                {/* Movable Pixel Aim & Spit Knob */}
                 <div
                   style={{
                     transform: `translate(${Math.round(aimVec.x * 28)}px, ${Math.round(

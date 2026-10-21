@@ -33,8 +33,10 @@ export function isJumpInvulnerable(z: number): boolean {
 
 /**
  * Exact mouth origin for frog sprites (14x15 pixel matrix at 2x = 28x30px).
- * In dspr(), sprite is centered vertically at (y - z - walkHop), and the mouth line
- * is row 8 of 15 (~1.5px above vertical center), slightly offset toward the facing side.
+ * In dspr(), sprite spans vertically from (y - 15*sc - z) to (y + 15*sc - z).
+ * Row 8-9 of 15 is the frog's mouth line (~+2.8px to +4.4px below vertical center y).
+ * When aiming upward (sinA < 0), the origin shifts slightly lower (+4.4*sc) to the lower lip
+ * so the pixel tongue comes out of the mouth below the eyes and never covers the forehead.
  */
 export function getFrogMouthOrigin(
   x: number,
@@ -42,14 +44,39 @@ export function getFrogMouthOrigin(
   z: number,
   ang: number,
   sc: number = 1,
-  walkHop: number = 0
+  walkHop: number = 0,
+  squash: number = 0
 ): { x: number; y: number } {
   const cosA = Math.cos(ang);
   const sinA = Math.sin(ang);
   const faceSign = cosA >= 0 ? 1 : -1;
-  const mx = x + faceSign * 2.2 * sc + cosA * 3.8 * sc;
-  const my = y - z - walkHop - 1.5 * sc + sinA * 2.8 * sc;
+  const mx = x + faceSign * 0.6 * sc * (1 + squash * 0.2) + cosA * 2.8 * sc;
+  const verticalAimShift = sinA < 0 ? Math.abs(sinA) * 1.6 * sc : sinA * 1.6 * sc;
+  const my = y - z - walkHop + 2.8 * sc * (1 - squash * 0.25) + verticalAimShift;
   return { x: mx, y: my };
+}
+
+/**
+ * Computes consistent, intuitive whip-tongue reach:
+ * - Retracted / idle: tiny (4.5px = 2 pixel blocks) sitting neatly in the frog's mouth
+ * - Attacking (clicking / holding fire): extends snappily to ~38px (max 46px with buffs),
+ *   compact and proportional to the frog sprite.
+ */
+export function computeTargetTongueReach(
+  currentReach: number,
+  wantFire: boolean,
+  dt: number,
+  sizeMult: number = 1,
+  runeReachMult: number = 1
+): number {
+  const idleReach = 4.5;
+  const rawAttack = 38 * Math.min(1.15, 1 + (sizeMult - 1) * 0.15) * Math.min(1.15, runeReachMult);
+  const attackReach = Math.min(46, rawAttack);
+  const target = wantFire ? attackReach : idleReach;
+  // Snappy whip extension when clicking, smooth controlled retraction when released
+  const rate = wantFire ? 28 : 22;
+  const step = Math.min(1, dt * rate);
+  return currentReach + (target - currentReach) * step;
 }
 
 /**
@@ -59,8 +86,8 @@ export function initCastlevaniaWhipChain(
   mouthX: number,
   mouthY: number,
   aimAng: number,
-  reach: number = 42,
-  segments: number = 8
+  reach: number = 4.5,
+  segments: number = 9
 ): WhipSegment[] {
   const segLen = reach / Math.max(1, segments - 1);
   const cosA = Math.cos(aimAng);
@@ -76,7 +103,7 @@ export function initCastlevaniaWhipChain(
 /**
  * Updates the persistent Castlevania-style frog tongue whip chain with deliberate,
  * weighty inertia so swinging the cursor moves the tongue like a flail/whip without
- * instant teleportation.
+ * instant teleportation, and retracts cleanly into a small tip when idle.
  */
 export function updateCastlevaniaWhipChain(
   chain: WhipSegment[],
@@ -99,10 +126,10 @@ export function updateCastlevaniaWhipChain(
   chain[0].vx = 0;
   chain[0].vy = 0;
 
-  // Deliberate whip speed cap (snappy, responsive and weighty Castlevania whip physics)
-  const springStiffness = whipActive ? 52 : 30;
-  const damping = whipActive ? 8.0 : 9.5;
-  const maxStepSpeed = whipActive ? 560 : 340;
+  // Deliberate whip speed cap (snappy, responsive Castlevania whip physics)
+  const springStiffness = whipActive ? 92 : 42;
+  const damping = whipActive ? 7.2 : 10.5;
+  const maxStepSpeed = whipActive ? 1350 : 480;
 
   for (let i = 1; i < n; i++) {
     const seg = chain[i];
@@ -111,7 +138,7 @@ export function updateCastlevaniaWhipChain(
     const idealY = mouthY + sinA * (reach * ratio);
 
     // Spring pull toward ideal aim line, stronger near the base and looser near the tip for whip lag
-    const pull = springStiffness * (1.2 - ratio * 0.4);
+    const pull = springStiffness * (1.24 - ratio * 0.34);
     seg.vx += (idealX - seg.x) * pull * dt;
     seg.vy += (idealY - seg.y) * pull * dt;
 
@@ -122,7 +149,7 @@ export function updateCastlevaniaWhipChain(
 
     // Clamp velocity so swinging the mouse fast creates a smooth Castlevania whip arc
     const spd = Math.hypot(seg.vx, seg.vy);
-    const limit = maxStepSpeed * (0.6 + ratio * 0.7);
+    const limit = maxStepSpeed * (0.7 + ratio * 0.65);
     if (spd > limit) {
       seg.vx = (seg.vx / spd) * limit;
       seg.vy = (seg.vy / spd) * limit;
@@ -143,8 +170,14 @@ export function updateCastlevaniaWhipChain(
       const dy = cur.y - prev.y;
       const d = Math.hypot(dx, dy) || 0.001;
       const maxSeg = segLen * 1.12;
-      const minSeg = segLen * 0.55;
-      if (d > maxSeg) {
+      const minSeg = whipActive ? segLen * 0.85 : segLen * 0.55;
+      const forwardDot = dx * cosA + dy * sinA;
+
+      if (whipActive && forwardDot < minSeg) {
+        // When whipping out from a tiny idle tongue, project segment forward along aim/whip vector
+        cur.x = prev.x + cosA * minSeg + (dx - forwardDot * cosA) * 0.6;
+        cur.y = prev.y + sinA * minSeg + (dy - forwardDot * sinA) * 0.6;
+      } else if (d > maxSeg) {
         const diff = (d - maxSeg) / d;
         cur.x -= dx * diff * 0.85;
         cur.y -= dy * diff * 0.85;
